@@ -20,13 +20,15 @@ export class ExtractUserMiddleware implements NestMiddleware {
     try {
       const payload = this.jwtService.verify(token);
       req.user = {
-        sub: payload.sub,
-        userId: payload.sub,
-        email: payload.email,
+        sub:       payload.sub,
+        userId:    payload.sub,
+        email:     payload.email,
         firstName: payload.firstName,
-        lastName: payload.lastName,
+        lastName:  payload.lastName,
+        roles:     payload.roles ?? [],
+        jti:       payload.jti,
       };
-      this.logger.debug(`User attached to request: ${payload.sub}`);
+      this.logger.debug(`User attached: ${payload.sub} [${(payload.roles ?? []).join(", ")}]`);
     } catch (error) {
       this.logger.warn(`JWT verification failed: ${error.message}`);
     }

@@ -12,6 +12,8 @@ import { CapacityService } from "./services/capacity.service";
 import { ScheduleResolverService } from "./services/schedule-resolver.service";
 import { AvailabilitySlot } from "./types/availability.types";
 
+const MAX_RANGE_DAYS = 31;
+
 @Injectable()
 export class AvailabilityService {
   private readonly logger = new Logger("AvailabilityService");
@@ -24,28 +26,26 @@ export class AvailabilityService {
     private scheduleResolverService: ScheduleResolverService
   ) {}
 
-  /**
-   * Convierte una fecha ISO (YYYY-MM-DD) a Date respetando timezone
-   */
-  private parseLocalDate(dateString: string, timezone: string): Date {
-    // dateString viene como "2026-01-20" (sin zona horaria)
-    // Lo interpretamos como medianoche en el timezone de la sede
+  /** Parses "YYYY-MM-DD" as local midnight, avoids UTC drift. */
+  private parseLocalDate(dateString: string): Date {
     const [year, month, day] = dateString.split("-").map(Number);
-    const date = new Date(year, month - 1, day, 0, 0, 0, 0);
-    return date;
+    return new Date(year, month - 1, day, 0, 0, 0, 0);
   }
 
-  /**
-   * Convierte una fecha a string HH:mm en timezone local
-   */
+  /** "YYYY-MM-DD" from a local Date (avoids UTC drift for evening slots). */
+  private localDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  /** "HH:mm" from a local Date. */
   private formatTimeLocal(date: Date): string {
-    return `${String(date.getHours()).padStart(2, "0")}:${String(
-      date.getMinutes()
-    ).padStart(2, "0")}`;
+    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
   }
 
   /**
-   * Obtiene disponibilidad para un rango de fechas y servicio
+   * Obtiene disponibilidad para un rango de fechas y servicio.
+   * Optimizado: pre-carga appointments y capacity rules en 3 queries totales
+   * (en lugar de N+1 por slot).
    */
   async getAvailability(
     branchId: string,
@@ -54,160 +54,111 @@ export class AvailabilityService {
     to: string,
     userId: string
   ) {
-    // Validar acceso
-    const hasAccess = await this.rbacService.hasAccessToBranch(
-      userId,
-      branchId
+    // 1. Validar acceso
+    const hasAccess = await this.rbacService.hasAccessToBranch(userId, branchId);
+    if (!hasAccess) throw new ForbiddenException("No tienes acceso a esta sede");
+
+    // 2. Cargar branch y service en paralelo
+    const [branch, service] = await Promise.all([
+      this.prisma.branch.findUnique({ where: { id: branchId } }),
+      this.prisma.service.findUnique({ where: { id: serviceId } }),
+    ]);
+    if (!branch)   throw new NotFoundException(`Sede con ID ${branchId} no encontrada`);
+    if (!service)  throw new NotFoundException(`Servicio con ID ${serviceId} no encontrado`);
+
+    // 3. Parsear fechas (medianoche local — sin UTC drift)
+    const fromDate = this.parseLocalDate(from);
+    const toDate   = this.parseLocalDate(to);
+
+    if (fromDate > toDate) throw new BadRequestException("from debe ser menor o igual que to");
+
+    const diffDays = Math.round((toDate.getTime() - fromDate.getTime()) / 86_400_000);
+    if (diffDays > MAX_RANGE_DAYS) {
+      throw new BadRequestException(`El rango máximo es ${MAX_RANGE_DAYS} días`);
+    }
+
+    // 4. Construir schedules para el rango
+    const daySchedules = await this.scheduleResolverService.buildDaySchedulesForRange(
+      branchId, fromDate, toDate, branch.timezone
     );
-    if (!hasAccess) {
-      throw new ForbiddenException("No tienes acceso a esta sede");
-    }
-
-    // Validar que existe la sede
-    const branch = await this.prisma.branch.findUnique({
-      where: { id: branchId },
-    });
-
-    if (!branch) {
-      throw new NotFoundException(`Sede con ID ${branchId} no encontrada`);
-    }
-
-    // Validar que existe el servicio
-    const service = await this.prisma.service.findUnique({
-      where: { id: serviceId },
-    });
-
-    if (!service) {
-      throw new NotFoundException(`Servicio con ID ${serviceId} no encontrado`);
-    }
-
-    // Parsear fechas respetando timezone de la sede
-    const fromDate = this.parseLocalDate(from, branch.timezone);
-    const toDate = this.parseLocalDate(to, branch.timezone);
-
-    if (fromDate > toDate) {
-      throw new BadRequestException("from debe ser menor o igual que to");
-    }
-
-    // Construir schedules para el rango
-    const daySchedules =
-      await this.scheduleResolverService.buildDaySchedulesForRange(
-        branchId,
-        fromDate,
-        toDate,
-        branch.timezone
-      );
 
     if (daySchedules.length === 0) {
       return {
-        branchId,
-        branchName: branch.name,
-        branchTimezone: branch.timezone,
-        serviceId,
-        serviceName: service.name,
+        branchId, branchName: branch.name, branchTimezone: branch.timezone,
+        serviceId, serviceName: service.name,
         serviceDuration: service.durationMinutes,
-        serviceDurationWithBuffer:
-          service.durationMinutes + service.bufferMinutes,
-        dateRange: {
-          from: from,
-          to: to,
-        },
-        capacity: {
-          totalCapacity: branch.defaultCapacity,
-          occupiedSlots: 0,
-          availableSlots: 0,
-        },
+        serviceDurationWithBuffer: service.durationMinutes + service.bufferMinutes,
+        dateRange: { from, to },
+        capacity: { totalCapacity: branch.defaultCapacity, occupiedSlots: 0, availableSlots: 0 },
         slots: [],
         message: "No hay horarios disponibles en el rango especificado",
       };
     }
 
-    // Generar slots base
+    // 5. Generar slots base
     const baseSlots = this.slotGeneratorService.generateSlotsForDateRange(
-      fromDate,
-      toDate,
-      serviceId,
-      service.durationMinutes,
-      service.bufferMinutes,
-      daySchedules
+      fromDate, toDate, serviceId, service.durationMinutes, service.bufferMinutes, daySchedules
     );
 
-    // Enriquecer slots con información de capacidad
-    const enrichedSlots: AvailabilitySlot[] = [];
+    // 6. Pre-cargar datos de capacidad en UNA sola ronda (elimina N+1)
+    const preload = await this.capacityService.preloadForRange(branchId, fromDate, toDate);
 
-    for (const slot of baseSlots) {
-      const capacityInfo = await this.capacityService.getCapacityInfo(
-        branchId,
-        slot.startAt,
-        slot.endAt,
-        0 // TODO: contar holds activos desde Redis cuando esté implementado
-      );
+    // 7. Enriquecer slots con capacidad (sync, sin DB)
+    const enrichedSlots: AvailabilitySlot[] = baseSlots.map((slot) => {
+      const cap = this.capacityService.computeSlotCapacity(slot.startAt, slot.endAt, preload);
+      return {
+        startAt:           slot.startAt,
+        endAt:             slot.endAt,
+        startAtLocal:      this.formatTimeLocal(slot.startAt),
+        endAtLocal:        this.formatTimeLocal(slot.endAt),
+        totalCapacity:     cap.totalCapacity,
+        availableCapacity: cap.availableCapacity,
+        isAvailable:       cap.availableCapacity > 0,
+      };
+    });
 
-      enrichedSlots.push({
-        startAt: slot.startAt,
-        endAt: slot.endAt,
-        startAtLocal: this.formatTimeLocal(slot.startAt),
-        endAtLocal: this.formatTimeLocal(slot.endAt),
-        totalCapacity: capacityInfo.totalCapacity,
-        availableCapacity: capacityInfo.availableCapacity,
-        isAvailable: capacityInfo.availableCapacity > 0,
-      });
-    }
+    // 8. Filtrar disponibles
+    const availableSlots = enrichedSlots.filter((s) => s.isAvailable);
 
-    // Filtrar solo slots disponibles
-    const availableSlots = enrichedSlots.filter((slot) => slot.isAvailable);
-
-    // Agrupar por fecha para respuesta mejorada
+    // 9. Agrupar por fecha local (sin UTC drift: usa getFullYear/Month/Date)
     const slotsByDate = new Map<string, AvailabilitySlot[]>();
     for (const slot of availableSlots) {
-      const dateKey = slot.startAt.toISOString().split("T")[0];
-      if (!slotsByDate.has(dateKey)) {
-        slotsByDate.set(dateKey, []);
-      }
+      const dateKey = this.localDateStr(slot.startAt);
+      if (!slotsByDate.has(dateKey)) slotsByDate.set(dateKey, []);
       slotsByDate.get(dateKey)!.push(slot);
     }
 
-    // Convertir a array ordenado
     const slotsByDateArray = Array.from(slotsByDate.entries())
-      .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))
+      .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, slots]) => ({
         date,
         slots: slots.sort((a, b) => a.startAt.getTime() - b.startAt.getTime()),
       }));
 
-    // Obtener info del horario del primer día para contexto
-    const firstDaySchedule = daySchedules[0];
-    const scheduleInfo = firstDaySchedule
-      ? {
-          startHour: firstDaySchedule.startTime,
-          endHour: firstDaySchedule.endTime,
-          blocks: firstDaySchedule.blocks.map((b) => ({
-            startTime: this.formatTimeLocal(b.startAt),
-            endTime: this.formatTimeLocal(b.endAt),
-            type: b.type,
-            title: b.title,
-          })),
-        }
-      : null;
+    // 10. Info del primer día para contexto
+    const firstDay = daySchedules[0];
+    const scheduleInfo = firstDay ? {
+      startHour: firstDay.startTime,
+      endHour:   firstDay.endTime,
+      blocks: firstDay.blocks.map((b) => ({
+        startTime: this.formatTimeLocal(b.startAt),
+        endTime:   this.formatTimeLocal(b.endAt),
+        type:      b.type,
+        title:     b.title,
+      })),
+    } : null;
 
     this.logger.log(
-      `Disponibilidad calculada: ${availableSlots.length} slots disponibles de ${enrichedSlots.length} totales`
+      `Disponibilidad: ${availableSlots.length} slots disponibles de ${enrichedSlots.length} totales ` +
+      `(${baseSlots.length} generados, ${daySchedules.length} días con horario)`
     );
 
-    // Response mejorado
     return {
-      branchId,
-      branchName: branch.name,
-      branchTimezone: branch.timezone,
-      serviceId,
-      serviceName: service.name,
+      branchId, branchName: branch.name, branchTimezone: branch.timezone,
+      serviceId, serviceName: service.name,
       serviceDuration: service.durationMinutes,
-      serviceDurationWithBuffer:
-        service.durationMinutes + service.bufferMinutes,
-      dateRange: {
-        from,
-        to,
-      },
+      serviceDurationWithBuffer: service.durationMinutes + service.bufferMinutes,
+      dateRange: { from, to },
       schedule: scheduleInfo,
       capacity: {
         totalCapacity: branch.defaultCapacity,
@@ -219,16 +170,4 @@ export class AvailabilityService {
     };
   }
 
-  /**
-   * Obtiene disponibilidad agrupada por fecha (formato simplificado)
-   */
-  async getAvailabilityGroupedByDate(
-    branchId: string,
-    serviceId: string,
-    from: string,
-    to: string,
-    userId: string
-  ) {
-    return this.getAvailability(branchId, serviceId, from, to, userId);
-  }
 }

@@ -15,6 +15,10 @@ export enum WebSocketEvent {
   APPOINTMENT_RESCHEDULED = "appointment:rescheduled",
   APPOINTMENT_NO_SHOW = "appointment:no_show",
 
+  // Sale events
+  SALE_CREATED = "sale:created",
+  SALE_VOIDED = "sale:voided",
+
   // Availability events
   AVAILABILITY_UPDATED = "availability:updated",
   SLOT_AVAILABLE = "slot:available",
@@ -81,6 +85,18 @@ export interface AppointmentStatusChangedPayload {
   new_status: string;
   changed_at: string;
   reason?: string;
+}
+
+export interface SaleCreatedPayload {
+  id: string;
+  branch_id: string;
+  customer_id?: string;
+  appointment_id?: string;
+  total_amount: string;
+  payment_method: string;
+  status: string;
+  items_count: number;
+  created_at: string;
 }
 
 export interface AvailabilityUpdatedPayload {

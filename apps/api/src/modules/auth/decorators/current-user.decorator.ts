@@ -9,10 +9,14 @@ const logger = new Logger("CurrentUserDecorator");
 
 export interface CurrentUserData {
   sub: string;
-  userId?: string;
+  userId: string;
   email?: string;
   firstName?: string;
   lastName?: string;
+  /** Roles del usuario embebidos en el JWT (ej. ["RECEPTIONIST", "SUPERVISOR"]) */
+  roles: string[];
+  /** JTI del access token actual */
+  jti?: string;
 }
 
 export const CurrentUser = createParamDecorator(
@@ -21,19 +25,18 @@ export const CurrentUser = createParamDecorator(
     const user = request.user;
 
     if (!user || !user.sub) {
-      logger.error(
-        "CurrentUser decorator: usuario no encontrado o sin sub en request"
-      );
-      logger.error("request.user:", user);
+      logger.error("CurrentUser: usuario no encontrado o sin sub en request");
       throw new BadRequestException("Usuario no autenticado");
     }
 
     return {
-      sub: user.sub,
-      userId: user.sub,
-      email: user.email,
+      sub:       user.sub,
+      userId:    user.sub,
+      email:     user.email,
       firstName: user.firstName,
-      lastName: user.lastName,
+      lastName:  user.lastName,
+      roles:     user.roles ?? [],
+      jti:       user.jti,
     };
   }
 );

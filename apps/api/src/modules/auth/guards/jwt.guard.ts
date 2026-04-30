@@ -16,19 +16,11 @@ export class JwtAuthGuard extends AuthGuard("jwt") {
       context.getClass(),
     ]);
 
-    if (isPublic) {
-      return true;
-    }
+    if (isPublic) return true;
 
-    const request = context.switchToHttp().getRequest();
-    const wsClient = context.switchToWs().getClient();
+    // Contextos no-HTTP (WebSocket, RPC) se validan en sus propios guards/interceptors
+    if (context.getType() !== "http") return true;
 
-    // Si es WebSocket, permitir (se valida en el gateway si es necesario)
-    if (wsClient) {
-      return true;
-    }
-
-    // Si es HTTP, validar JWT
     return super.canActivate(context);
   }
 }

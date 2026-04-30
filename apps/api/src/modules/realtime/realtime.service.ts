@@ -7,6 +7,7 @@ import {
   AppointmentCreatedPayload,
   AppointmentStatusChangedPayload,
   AvailabilityUpdatedPayload,
+  SaleCreatedPayload,
 } from "../../websocket_types";
 
 @Injectable()
@@ -19,20 +20,25 @@ export class RealtimeService {
   }
 
   /**
-   * Emite evento cuando se crea un hold
+   * Guard interno: evita crash si el gateway aún no fue inicializado.
    */
-  notifyHoldCreated(payload: HoldCreatedPayload) {
-    const room = `branch:${payload.branch_id}`;
-    this.gateway.emitToRoom(room, WebSocketEvent.HOLD_CREATED, payload);
-    this.logger.debug(
-      `Hold created notification sent to ${room}: ${payload.hold_id}`
-    );
+  private isReady(): boolean {
+    if (!this.gateway) {
+      this.logger.warn("RealtimeGateway no inicializado — notificación omitida");
+      return false;
+    }
+    return true;
   }
 
-  /**
-   * Emite evento cuando se renueva un hold
-   */
+  notifyHoldCreated(payload: HoldCreatedPayload) {
+    if (!this.isReady()) return;
+    const room = `branch:${payload.branch_id}`;
+    this.gateway.emitToRoom(room, WebSocketEvent.HOLD_CREATED, payload);
+    this.logger.debug(`Hold created → ${room}: ${payload.hold_id}`);
+  }
+
   notifyHoldRenewed(branchId: string, holdId: string, expiresAt: string) {
+    if (!this.isReady()) return;
     const room = `branch:${branchId}`;
     this.gateway.emitToRoom(room, WebSocketEvent.HOLD_RENEWED, {
       hold_id: holdId,
@@ -40,13 +46,11 @@ export class RealtimeService {
       expires_at: expiresAt,
       renewed_at: new Date().toISOString(),
     });
-    this.logger.debug(`Hold renewed notification sent to ${room}: ${holdId}`);
+    this.logger.debug(`Hold renewed → ${room}: ${holdId}`);
   }
 
-  /**
-   * Emite evento cuando se libera un hold
-   */
   notifyHoldReleased(branchId: string, holdId: string, reason?: string) {
+    if (!this.isReady()) return;
     const room = `branch:${branchId}`;
     this.gateway.emitToRoom(room, WebSocketEvent.HOLD_RELEASED, {
       hold_id: holdId,
@@ -54,108 +58,80 @@ export class RealtimeService {
       released_at: new Date().toISOString(),
       reason,
     });
-    this.logger.debug(`Hold released notification sent to ${room}: ${holdId}`);
+    this.logger.debug(`Hold released → ${room}: ${holdId}`);
   }
 
-  /**
-   * Emite evento cuando se expira un hold
-   */
   notifyHoldExpired(branchId: string, holdId: string) {
+    if (!this.isReady()) return;
     const room = `branch:${branchId}`;
     this.gateway.emitToRoom(room, WebSocketEvent.HOLD_EXPIRED, {
       hold_id: holdId,
       branch_id: branchId,
       expired_at: new Date().toISOString(),
     });
-    this.logger.debug(`Hold expired notification sent to ${room}: ${holdId}`);
+    this.logger.debug(`Hold expired → ${room}: ${holdId}`);
   }
 
-  /**
-   * Emite evento cuando se crea una cita
-   */
   notifyAppointmentCreated(payload: AppointmentCreatedPayload) {
+    if (!this.isReady()) return;
     const branchRoom = `branch:${payload.branch_id}`;
     const customerRoom = `customer:${payload.customer_id}`;
-
-    this.gateway.emitToRoom(
-      branchRoom,
-      WebSocketEvent.APPOINTMENT_CREATED,
-      payload
-    );
-    this.gateway.emitToRoom(
-      customerRoom,
-      WebSocketEvent.APPOINTMENT_CREATED,
-      payload
-    );
-
-    this.logger.debug(`Appointment created notification sent: ${payload.id}`);
+    this.gateway.emitToRoom(branchRoom, WebSocketEvent.APPOINTMENT_CREATED, payload);
+    this.gateway.emitToRoom(customerRoom, WebSocketEvent.APPOINTMENT_CREATED, payload);
+    this.logger.debug(`Appointment created → ${branchRoom}: ${payload.id}`);
   }
 
-  /**
-   * Emite evento cuando cambia el estado de una cita
-   */
   notifyAppointmentStatusChanged(payload: AppointmentStatusChangedPayload) {
+    if (!this.isReady()) return;
     const branchRoom = `branch:${payload.branch_id}`;
     const customerRoom = `customer:${payload.customer_id}`;
 
     let event: WebSocketEvent;
     switch (payload.new_status) {
-      case "CONFIRMED":
-        event = WebSocketEvent.APPOINTMENT_CONFIRMED;
-        break;
-      case "CHECKED_IN":
-        event = WebSocketEvent.APPOINTMENT_CHECKED_IN;
-        break;
-      case "IN_SERVICE":
-        event = WebSocketEvent.APPOINTMENT_IN_SERVICE;
-        break;
-      case "COMPLETED":
-        event = WebSocketEvent.APPOINTMENT_COMPLETED;
-        break;
-      case "CANCELED":
-        event = WebSocketEvent.APPOINTMENT_CANCELED;
-        break;
-      case "RESCHEDULED":
-        event = WebSocketEvent.APPOINTMENT_RESCHEDULED;
-        break;
-      case "NO_SHOW":
-        event = WebSocketEvent.APPOINTMENT_NO_SHOW;
-        break;
-      default:
-        return;
+      case "CONFIRMED":    event = WebSocketEvent.APPOINTMENT_CONFIRMED;  break;
+      case "CHECKED_IN":   event = WebSocketEvent.APPOINTMENT_CHECKED_IN; break;
+      case "IN_SERVICE":   event = WebSocketEvent.APPOINTMENT_IN_SERVICE; break;
+      case "COMPLETED":    event = WebSocketEvent.APPOINTMENT_COMPLETED;  break;
+      case "CANCELED":     event = WebSocketEvent.APPOINTMENT_CANCELED;   break;
+      case "RESCHEDULED":  event = WebSocketEvent.APPOINTMENT_RESCHEDULED; break;
+      case "NO_SHOW":      event = WebSocketEvent.APPOINTMENT_NO_SHOW;    break;
+      default: return;
     }
 
     this.gateway.emitToRoom(branchRoom, event, payload);
     this.gateway.emitToRoom(customerRoom, event, payload);
-
-    this.logger.debug(
-      `Appointment status changed notification sent: ${payload.id} -> ${payload.new_status}`
-    );
+    this.logger.debug(`Appointment ${payload.new_status} → ${branchRoom}: ${payload.id}`);
   }
 
-  /**
-   * Emite evento cuando se actualiza disponibilidad
-   */
+  notifySaleCreated(payload: SaleCreatedPayload) {
+    if (!this.isReady()) return;
+    const room = `branch:${payload.branch_id}`;
+    this.gateway.emitToRoom(room, WebSocketEvent.SALE_CREATED, payload);
+    this.logger.debug(`Sale created → ${room}: ${payload.id}`);
+  }
+
+  notifySaleVoided(payload: { id: string; branch_id: string; void_reason: string; voided_at: string }) {
+    if (!this.isReady()) return;
+    const room = `branch:${payload.branch_id}`;
+    this.gateway.emitToRoom(room, WebSocketEvent.SALE_VOIDED, payload);
+    this.logger.debug(`Sale voided → ${room}: ${payload.id}`);
+  }
+
   notifyAvailabilityUpdated(payload: AvailabilityUpdatedPayload) {
+    if (!this.isReady()) return;
     const room = `branch:${payload.branch_id}`;
     this.gateway.emitToRoom(room, WebSocketEvent.AVAILABILITY_UPDATED, payload);
-    this.logger.debug(`Availability updated notification sent to ${room}`);
+    this.logger.debug(`Availability updated → ${room}`);
   }
 
-  /**
-   * Obtiene estadísticas de conexión
-   */
   getConnectionStats() {
     return {
-      connectedUsers: this.gateway.getConnectedUsersCount(),
+      connectedUsers: this.gateway?.getConnectedUsersCount() ?? 0,
       timestamp: new Date().toISOString(),
     };
   }
 
-  /**
-   * Obtiene conexiones de un usuario específico
-   */
   getUserConnections(userId: string): string[] {
-    return this.gateway.getUserConnections(userId);
+    return this.gateway?.getUserConnections(userId) ?? [];
   }
 }

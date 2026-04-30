@@ -17,10 +17,11 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
+    "ignoreDeprecations": "6.0",
     "emitDecoratorMetadata": true,
     "moduleResolution": "node",
-    "types": ["node"]
+    "types": ["node", "multer"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+  "exclude": ["node_modules", "dist", "**/*.spec.ts", "src/test/**"]
 }

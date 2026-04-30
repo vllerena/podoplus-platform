@@ -11,17 +11,28 @@ generator client {
 // SEGURIDAD Y AUTENTICACIÓN
 // ============================================================================
 
+// Los usuarios del sistema NUNCA se eliminan físicamente.
+// La baja se gestiona con isActive = false.
 model User {
-  id            String   @id @default(cuid())
-  firstName     String
-  lastName      String
-  email         String?  @unique
-  phone         String?  @unique
-  passwordHash  String?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?
+  id             String    @id @default(cuid())
+  firstName      String
+  lastName       String
+  email          String    @unique
+  phone          String?   @unique
+  passwordHash   String?
+  avatarData     Bytes?
+  avatarMimeType String?
+  isActive       Boolean   @default(true)
+  // Documento de identidad
+  documentType   String?   // DNI | RUC | PASSPORT | CE | OTHER
+  documentNumber String?
+  // Datos personales adicionales
+  address        String?
+  birthDate      DateTime?
+  // Auditoría de sesiones
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   // Relaciones
   roles                    UserRole[]
@@ -33,12 +44,16 @@ model User {
   cashRegistersClosed      CashRegister[] @relation("ClosedBy")
   cashMovements            CashMovement[]
   salesCreated             Sale[] @relation("SaleCreatedBy")
+  salesRefunded            Sale[] @relation("SaleRefundedBy")
   inventoryMovements       InventoryMovement[]
+  purchasesCreated         Purchase[] @relation("PurchaseCreatedBy")
   subscriptionsCanceled    CustomerSubscription[] @relation("CanceledSub")
   subscriptionsCreated     CustomerSubscription[] @relation("CreatedSub")
   subscriptionConsumptions SubscriptionConsumption[]
   auditLogs                AuditLog[]
   scheduleExceptions BranchScheduleException[] @relation("ScheduleExceptionCreatedBy")
+  notifications            Notification[]
+  customerNotes            CustomerNote[]        @relation("CustomerNoteAuthor")
 
   @@index([email])
   @@index([isActive])
@@ -96,9 +111,43 @@ model UserRole {
 }
 
 // ============================================================================
+// BUSINESS UNITS (Empresas / Razones sociales)
+// ============================================================================
+
+model BusinessUnit {
+  id       String  @id @default(cuid())
+  name     String  @db.VarChar(150)
+  ruc      String? @unique @db.VarChar(11)
+  address  String? @db.VarChar(300)
+  logoData       Bytes?
+  logoMimeType   String? @db.VarChar(50)
+  bannerData     Bytes?
+  bannerMimeType String? @db.VarChar(50)
+  website  String? @db.VarChar(300)
+  email    String? @db.VarChar(254)
+  phone    String? @db.VarChar(20)
+  isActive Boolean @default(true)
+
+  // SUNAT — Facturación electrónica
+  sunatEndpoint  String? @db.VarChar(500)
+  sunatToken     String? @db.VarChar(500)
+
+  branches  Branch[]
+  purchases Purchase[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("BusinessUnit")
+}
+
+// ============================================================================
 // SEDES/BRANCHES
 // ============================================================================
 
+// Las sedes SÍ pueden eliminarse físicamente (a diferencia de Users).
+// Cuando se elimina una Branch, sus relaciones se propagan con onDelete: Cascade.
 model Branch {
   id              String   @id @default(cuid())
   code            String?  @unique
@@ -107,14 +156,27 @@ model Branch {
   district        String?
   city            String?
   phone           String?
+  email           String?
+  latitude        Decimal? @db.Decimal(10, 7)
+  longitude       Decimal? @db.Decimal(10, 7)
+  googleMapsUrl   String?
   isActive        Boolean  @default(true)
   defaultCapacity Int      @default(6)
   timezone        String   @default("America/Lima")
+  // Foto de la sede almacenada en BD
+  photoData       Bytes?
+  photoMimeType   String?
+  // Campos adicionales
+  banner          String?  @db.VarChar(500)
+  attachedCode    String?  @db.VarChar(20)
+  ubigeo          String?  @db.VarChar(10)
+  // Business Unit (razón social a la que pertenece la sede)
+  businessUnitId  String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  deletedAt       DateTime?
 
   // Relaciones
+  businessUnit     BusinessUnit?             @relation(fields: [businessUnitId], references: [id])
   users            UserBranch[]
   hours            BranchHour[]
   blocks           BranchBlock[]
@@ -124,13 +186,16 @@ model Branch {
   sales            Sale[]
   inventoryStocks  InventoryStock[]
   inventoryMoves   InventoryMovement[]
+  purchaseItems    PurchaseItem[]
   whatsappLogs     WhatsappMessageLog[]
   subscriptions    CustomerSubscription[]
   servicePrices       ServiceBranchPrice[]
   scheduleExceptions  BranchScheduleException[] @relation("BranchScheduleExceptions")
+  series              BranchSerie[]
 
   @@index([code])
   @@index([isActive])
+  @@index([businessUnitId])
   @@index([createdAt])
 }
 
@@ -145,6 +210,26 @@ model UserBranch {
   @@id([userId, branchId])
   @@index([userId])
   @@index([branchId])
+}
+
+// ============================================================================
+// SERIES DE DOCUMENTOS POR SEDE
+// ============================================================================
+
+model BranchSerie {
+  id            String   @id @default(cuid())
+  branchId      String
+  tipoDocumento String   @db.VarChar(10)  // Código SUNAT: "01", "03", "07", etc.
+  serie         String   @db.VarChar(10)  // e.g. "F020", "B020", "FC20"
+  contingencia  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, serie])
+  @@index([branchId])
+  @@map("BranchSerie")
 }
 
 // ============================================================================
@@ -234,41 +319,164 @@ model BranchScheduleException {
 // ============================================================================
 
 model Customer {
-  id             String   @id @default(cuid())
-  documentType   String?
-  documentNumber String?  @unique
-  firstName      String
-  lastName       String
-  phone          String?
-  email          String?
-  birthDate      DateTime?
-  gender         String?
-  notes          String?
-  whatsappOptIn  Boolean  @default(false)
-  familyHeadId   String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  deletedAt      DateTime?
+  id              String    @id @default(cuid())
+  documentType    String?
+  documentNumber  String?   @unique
+  firstName       String
+  lastName        String
+  phone           String?
+  email           String?
+  birthDate       DateTime?
+  gender          String?
+  notes           String?
+  whatsappOptIn   Boolean   @default(false)
+  familyHeadId    String?
+  familyRelation  String?   // Tipo de parentesco: Papá, Mamá, Hermano(a), etc.
+  avatarData      Bytes?
+  avatarMimeType  String?
+  selfRegistered  Boolean   @default(false)
+  // Datos clínicos adicionales
+  occupation              String?
+  allergies               Json?     // Array de strings (tags de alergias)
+  emergencyContactName    String?
+  emergencyContactPhone   String?
+  emergencyContactEmail   String?
+  // Citas (desnormalizado para performance en listados)
+  lastAppointmentDate     DateTime?
+  lastAppointmentStatus   String?
+  nextAppointmentDate     DateTime?
+  nextAppointmentStatus   String?
+  // Canal de marketing
+  marketingChannelId      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
 
-  familyMembers  Customer[] @relation("FamilyRelation")
-  familyHead     Customer?  @relation("FamilyRelation", fields: [familyHeadId], references: [id], onDelete: SetNull)
-  appointments   Appointment[]
-  subscriptions  CustomerSubscription[]
-  sales          Sale[]
-  whatsappLogs   WhatsappMessageLog[]
+  familyMembers     Customer[]              @relation("FamilyRelation")
+  familyHead        Customer?               @relation("FamilyRelation", fields: [familyHeadId], references: [id], onDelete: SetNull)
+  marketingChannel  MarketingChannel?       @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
+  appointments      Appointment[]
+  subscriptions     CustomerSubscription[]
+  sales             Sale[]
+  whatsappLogs      WhatsappMessageLog[]
+  customerNotes     CustomerNote[]
+  tagAssignments    CustomerTagAssignment[]
+  companies         CustomerCompany[]
 
   @@index([firstName])
   @@index([lastName])
+  @@index([firstName, lastName])
   @@index([documentNumber])
   @@index([phone])
   @@index([email])
   @@index([familyHeadId])
+  @@index([marketingChannelId])
   @@index([createdAt])
+  @@index([deletedAt])
+}
+
+model CustomerNote {
+  id         String   @id @default(cuid())
+  customerId String
+  content    String   @db.Text
+  authorId   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  author   User     @relation("CustomerNoteAuthor", fields: [authorId], references: [id])
+
+  @@index([customerId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+model CustomerTag {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  color       String   @default("#6B7280")
+  description String?
+  createdAt   DateTime @default(now())
+
+  assignments CustomerTagAssignment[]
+
+  @@index([name])
+}
+
+model CustomerTagAssignment {
+  customerId String
+  tagId      String
+  createdAt  DateTime @default(now())
+
+  customer Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag      CustomerTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, tagId])
+  @@index([customerId])
+  @@index([tagId])
+}
+
+// Canal de marketing por el que llegó el cliente
+model MarketingChannel {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customers Customer[]
+
+  @@index([isActive])
+}
+
+// Empresas para datos fiscales (facturación)
+model Company {
+  id             String   @id @default(cuid())
+  documentType   String?  // RUC | DNI | PASSPORT | CE | OTHER
+  documentNumber String?
+  name           String
+  address        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  customerLinks  CustomerCompany[]
+
+  @@index([documentNumber])
+  @@index([name])
+}
+
+// Relación muchos-a-muchos: Cliente ↔ Empresa
+model CustomerCompany {
+  id         String   @id @default(cuid())
+  customerId String
+  companyId  String
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, companyId])
+  @@index([customerId])
+  @@index([companyId])
 }
 
 // ============================================================================
 // SERVICIOS
 // ============================================================================
+
+// Categoría para agrupar servicios en el portal de autoservicio
+model ServiceCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("#6B7280")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services  Service[]
+
+  @@index([order])
+}
 
 model Service {
   id               String   @id @default(cuid())
@@ -279,15 +487,37 @@ model Service {
   basePrice        Decimal  @db.Decimal(10, 2)
   isActive         Boolean  @default(true)
   allowSelfService Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  color            String   @default("#6B7280") // Color hex para el calendario de citas
+  categoryId       String?
+
+  // ── Imagen del servicio (portal de autoservicio) ──────────────────────────
+  imageData        Bytes?
+  imageMimeType    String?
+
+  // ── Integración SUNAT/facturación ─────────────────────────────────────────
+  // internalCode    → codigo_interno en documentos / internal_id en productos
+  // sunatProductCode→ codigo_producto_sunat (ej: "85101500" para salud)
+  // unitTypeCode    → unidad_de_medida / unit_type_id ("ZZ" = Actividad de Servicio)
+  // igvAffectation  → codigo_tipo_afectacion_igv ("10"=Gravado,"20"=Exonerado,"30"=Inafecto)
+  // hasIgv          → has_igv (si el IGV aplica al precio)
+  internalCode       String?
+  sunatProductCode   String?
+  unitTypeCode       String   @default("ZZ")
+  igvAffectationCode String   @default("10")
+  hasIgv             Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relaciones
+  category     ServiceCategory?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   appointments Appointment[]
   branchPrices ServiceBranchPrice[]
   saleItems    SaleItem[]
 
+  @@index([name])
   @@index([isActive])
+  @@index([categoryId])
   @@index([createdAt])
 }
 
@@ -296,6 +526,7 @@ model ServiceBranchPrice {
   branchId  String
   price     Decimal  @db.Decimal(10, 2)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
@@ -323,9 +554,11 @@ model Appointment {
   canceledByType  String?  // USER, CUSTOMER, SYSTEM
   canceledById    String?
   canceledAt      DateTime?
-  rescheduledFromId String?
-  rescheduledToId String?
-  createdById     String?
+  rescheduledFromId   String?
+  rescheduledToId     String?
+  rescheduledReason   String?    // Motivo de la reprogramación (guardado en la cita original)
+  upcomingAlertSentAt DateTime?  // Set por el Worker al enviar la alerta de cita próxima a iniciar
+  createdById         String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -350,6 +583,10 @@ model Appointment {
   @@index([source])
   @@index([createdAt])
   @@index([branchId, startAt])
+  // Compound: capacity check (getEffectiveCapacityForSlot) y listado filtrado
+  @@index([branchId, status, startAt])
+  // Compound: queries de cliente + rango de fechas
+  @@index([customerId, startAt])
 }
 
 model AppointmentStatusHistory {
@@ -434,22 +671,62 @@ model Sale {
   paymentMethod   String   // CASH, CARD, YAPE, PLIN, TRANSFER, MIXED
   status          String   @default("PAID") // PAID, REFUNDED, VOIDED
   voidReason      String?
+  notes           String?  // Notas adicionales del punto de venta
+  // Campos de reembolso
+  refundAmount    Decimal? @db.Decimal(12, 2)  // Monto reembolsado (puede ser parcial)
+  refundReason    String?
+  refundedAt      DateTime?
+  refundedById    String?
   createdById     String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // ── Facturación electrónica (SUNAT / sfeperu) ────────────────────────────
+  tipoComprobante     String?   // "01"=Factura, "03"=Boleta
+  serieDocumento      String?   // e.g. "B020", "F020"
+  numeroDocumento     String?   // e.g. "B020-1500" (asignado por sfeperu)
+  // Datos del receptor para la factura/boleta
+  billingTipoDoc      String?   // "1"=DNI, "6"=RUC
+  billingNumDoc       String?   // Número de DNI o RUC
+  billingRazonSocial  String?   // Nombre o razón social del receptor
+  billingDireccion    String?   // Dirección del receptor
+  billingEmail        String?   // Email del receptor
+  billingTelefono     String?   // Teléfono del receptor
+  billingUbigeo       String?   // Ubigeo del receptor (cod. INEI)
+  // Respuesta de sfeperu
+  sunatExternalId     String?   // UUID del documento en sfeperu
+  sunatFilename       String?   // e.g. "20605267395-03-B020-1500"
+  sunatStateTypeId    String?   // "01"=Registrado, "05"=Aceptado
+  sunatStateDesc      String?   // Descripción legible del estado
+  sunatHash           String?   // Hash del XML del comprobante
+  sunatPrintTicketUrl String?   // URL para imprimir ticket (80mm)
+  sunatPrintA4Url     String?   // URL para imprimir A4
+  sunatPdfUrl         String?   // URL para descargar PDF
+  sunatXmlUrl         String?   // URL para descargar XML
+  sunatCdrUrl         String?   // URL para descargar CDR
+  sunatResponseCode   String?   // Código de respuesta SUNAT
+  sunatResponseDesc   String?   // Descripción de respuesta SUNAT
+  sunatEmittedAt      DateTime? // Fecha/hora de emisión efectiva
+
   // Relaciones
-  branch       Branch       @relation(fields: [branchId], references: [id])
-  customer     Customer?    @relation(fields: [customerId], references: [id])
-  appointment  Appointment? @relation(fields: [appointmentId], references: [id])
+  branch       Branch        @relation(fields: [branchId], references: [id])
+  customer     Customer?     @relation(fields: [customerId], references: [id])
+  appointment  Appointment?  @relation(fields: [appointmentId], references: [id])
   cashRegister CashRegister? @relation(fields: [cashRegisterId], references: [id])
-  createdBy    User         @relation("SaleCreatedBy", fields: [createdById], references: [id])
+  createdBy    User          @relation("SaleCreatedBy",    fields: [createdById],   references: [id])
+  refundedBy   User?         @relation("SaleRefundedBy",  fields: [refundedById],  references: [id])
   items        SaleItem[]
 
   @@index([branchId])
   @@index([customerId])
   @@index([status])
   @@index([createdAt])
+  @@index([refundedById])
+  @@index([serieDocumento])
+  @@index([numeroDocumento])
+  // Compound: reports (getSalesReport filtra por branchId + createdAt range)
+  @@index([branchId, createdAt])
+  @@index([branchId, status])
 }
 
 model SaleItem {
@@ -463,6 +740,10 @@ model SaleItem {
   unitPrice Decimal  @db.Decimal(10, 2)
   subtotal  Decimal  @db.Decimal(12, 2)
   createdAt DateTime @default(now())
+  // Campos SUNAT (resueltos al momento de la venta)
+  igvAffectationCode  String?   // "10"=gravado, "20"=exonerado, "30"=inafecto
+  sunatProductCode    String?   // Código catálogo SUNAT del producto/servicio
+  unitTypeCode        String?   // "NIU"=unidad, "ZZ"=servicio, etc.
 
   sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id])
@@ -486,16 +767,27 @@ model Product {
   costPrice   Decimal  @db.Decimal(10, 2)
   salePrice   Decimal  @db.Decimal(10, 2)
   isActive    Boolean  @default(true)
+  // Imagen del producto
+  imageData      Bytes?
+  imageMimeType  String?
+  // Campos SUNAT (consistente con Service)
+  internalCode       String?  // Código interno del producto
+  sunatProductCode   String?  // Código de catálogo SUNAT (Nubefact/sfeperu)
+  unitTypeCode       String   @default("NIU")  // NIU=unidad, ZZ=servicio, BLL=botella, etc.
+  igvAffectationCode String   @default("10")   // 10=gravado, 20=exonerado, 30=inafecto
+  hasIgv             Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relaciones
-  stocks    InventoryStock[]
-  movements InventoryMovement[]
-  saleItems SaleItem[]
+  stocks        InventoryStock[]
+  movements     InventoryMovement[]
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
 
   @@index([sku])
   @@index([isActive])
+  @@index([name])
 }
 
 model InventoryStock {
@@ -516,9 +808,10 @@ model InventoryMovement {
   id            String   @id @default(cuid())
   branchId      String
   productId     String
-  type          String   // PURCHASE_IN, SALE_OUT, ADJUSTMENT, TRANSFER_OUT, TRANSFER_IN, RETURN_IN
+  type          String   // PURCHASE_IN, SALE_OUT, ADJUSTMENT, TRANSFER_OUT, TRANSFER_IN, RETURN_IN, REMOVAL
   quantity      Int
-  referenceType String?  // SALE, TRANSFER, MANUAL, PURCHASE
+  lot           String?  // Lote del producto (trazabilidad en compras/recepciones)
+  referenceType String?  // SALE, TRANSFER, MANUAL, PURCHASE, ADJUSTMENT
   referenceId   String?
   reason        String?
   createdById   String
@@ -535,6 +828,90 @@ model InventoryMovement {
 }
 
 // ============================================================================
+// PROVEEDORES Y COMPRAS
+// ============================================================================
+
+// Proveedor de productos (empresa o persona que vende mercadería a Podoplus)
+model Supplier {
+  id             String   @id @default(cuid())
+  documentType   String   @default("RUC") // RUC | DNI | OTHER
+  documentNumber String?  @unique          // RUC, DNI, etc. — único cuando está presente
+  name           String
+  address        String?
+  phone          String?
+  email          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  purchases Purchase[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+// Cabecera de una compra/nota de entrada de mercadería
+model Purchase {
+  id             String    @id @default(cuid())
+  businessUnitId String?                                     // Razón social compradora
+  supplierId     String
+  voucherType    String                                      // FACTURA | BOLETA | NOTA_ENTRADA | LIQUIDACION | TICKET | OTHER
+  serie          String    @db.VarChar(20)
+  number         String    @db.VarChar(20)
+  emissionDate   DateTime
+  dueDate        DateTime?
+  currency       String    @default("PEN")                  // PEN | USD
+  exchangeRate   Decimal   @default(1) @db.Decimal(10, 4)
+  subtotal       Decimal   @default(0) @db.Decimal(12, 2)
+  taxAmount      Decimal   @default(0) @db.Decimal(12, 2)   // IGV u otros impuestos
+  totalAmount    Decimal   @default(0) @db.Decimal(12, 2)
+  status         String    @default("DRAFT")                // DRAFT | RECEIVED | CANCELLED
+  notes          String?
+  createdById    String
+  receivedAt     DateTime?
+  cancelledAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  businessUnit BusinessUnit? @relation(fields: [businessUnitId], references: [id])
+  supplier     Supplier      @relation(fields: [supplierId], references: [id])
+  createdBy    User          @relation("PurchaseCreatedBy", fields: [createdById], references: [id])
+  items        PurchaseItem[]
+
+  @@unique([supplierId, voucherType, serie, number])
+  @@index([businessUnitId])
+  @@index([supplierId])
+  @@index([status])
+  @@index([emissionDate])
+  @@index([createdAt])
+}
+
+// Ítem de una compra: producto, almacén de destino, lote, cantidades y precios
+model PurchaseItem {
+  id           String  @id @default(cuid())
+  purchaseId   String
+  productId    String
+  branchId     String                        // Almacén/sede de destino del stock
+  lot          String? @db.VarChar(100)      // Número de lote (trazabilidad)
+  unitTypeCode String  @default("NIU")
+  quantity     Decimal @db.Decimal(10, 4)    // Cantidad recibida
+  unitValue    Decimal @db.Decimal(12, 6)    // Valor unitario sin IGV
+  unitPrice    Decimal @db.Decimal(12, 6)    // Precio unitario con IGV
+  discount     Decimal @default(0) @db.Decimal(10, 2)
+  charge       Decimal @default(0) @db.Decimal(10, 2)
+  totalAmount  Decimal @db.Decimal(12, 2)
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+  branch   Branch   @relation(fields: [branchId], references: [id])
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@index([branchId])
+}
+
+// ============================================================================
 // PLANES Y SUSCRIPCIONES
 // ============================================================================
 
@@ -542,10 +919,12 @@ model Plan {
   id               String   @id @default(cuid())
   name             String
   description      String?
+  planType         String   @default("SESSION") // SESSION, DATE, HYBRID
   price            Decimal  @db.Decimal(10, 2)
-  durationDays     Int
-  includedSessions Int
+  durationDays     Int      // Para DATE/HYBRID: duración del período. Para SESSION: referencial
+  includedSessions Int      // Para SESSION/HYBRID: nro de sesiones. Para DATE: usar 9999 (ilimitado)
   isActive         Boolean  @default(true)
+  color            String?  // Color hex para diferenciación visual en UI (ej. #6B7280)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -554,28 +933,33 @@ model Plan {
   saleItems     SaleItem[]
 
   @@index([isActive])
+  @@index([name])
 }
 
 model CustomerSubscription {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   customerId        String
   planId            String
-  branchId          String
-  appointmentId     String?  @unique
-  status            String   // ACTIVE, PAUSED, CANCELED, EXPIRED
+  branchId          String?   // Opcional — la suscripción es válida en cualquier sede
+  appointmentId     String?   @unique
+  status            String    // ACTIVE, PAUSED, CANCELED, EXPIRED
   startDate         DateTime
   endDate           DateTime
   remainingSessions Int
   cancelReason      String?
   canceledById      String?
+  canceledAt        DateTime? // Timestamp exacto de cancelación
+  pausedAt          DateTime? // Timestamp de inicio de pausa
+  pausedReason      String?   // Motivo de la pausa
+  renewedFromId     String?   // Link a la suscripción anterior (cadena de renovaciones)
   createdById       String
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   // Relaciones
   customer     Customer                 @relation(fields: [customerId], references: [id])
   plan         Plan                     @relation(fields: [planId], references: [id])
-  branch       Branch                   @relation(fields: [branchId], references: [id])
+  branch       Branch?                  @relation(fields: [branchId], references: [id])
   appointment  Appointment?             @relation(fields: [appointmentId], references: [id])
   canceledBy   User?                    @relation("CanceledSub", fields: [canceledById], references: [id])
   createdBy    User                     @relation("CreatedSub", fields: [createdById], references: [id])
@@ -586,6 +970,8 @@ model CustomerSubscription {
   @@index([branchId])
   @@index([status])
   @@index([endDate])
+  @@index([customerId, status])
+  @@index([status, endDate])
 }
 
 model SubscriptionConsumption {
@@ -593,6 +979,7 @@ model SubscriptionConsumption {
   subscriptionId   String
   appointmentId    String?
   consumedSessions Int      @default(1)
+  notes            String?  // Notas del consumo (ej. "Sesión domicilio")
   consumedAt       DateTime @default(now())
   createdById      String
   createdAt        DateTime @default(now())
@@ -681,4 +1068,32 @@ model AuditLog {
   @@index([actorType])
   @@index([createdAt])
   @@index([branchId])
+  // Compound: getEntityHistory filtra por entityType + entityId
+  @@index([entityType, entityId])
+  // Compound: getLogs con filtro de sede y rango de fechas (reports, admin)
+  @@index([branchId, createdAt])
+}
+
+// ============================================================================
+// NOTIFICACIONES INTERNAS
+// ============================================================================
+
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  type       String    // appointment, sale, subscription, cash_register, system
+  title      String
+  body       String
+  entityType String?
+  entityId   String?
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@index([userId, isRead])
 }

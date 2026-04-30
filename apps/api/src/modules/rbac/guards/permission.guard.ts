@@ -1,11 +1,17 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException, Logger } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { RbacService } from '../rbac.service';
-import { PERMISSION_KEY } from '../decorators/require-permission.decorator';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+  Logger,
+} from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import { RbacService } from "../rbac.service";
+import { PERMISSION_KEY } from "../decorators/require-permission.decorator";
 
 @Injectable()
 export class PermissionGuard implements CanActivate {
-  private readonly logger = new Logger('PermissionGuard');
+  private readonly logger = new Logger("PermissionGuard");
 
   constructor(
     private reflector: Reflector,
@@ -18,20 +24,24 @@ export class PermissionGuard implements CanActivate {
       context.getHandler(),
     );
 
-    // Si no hay permiso requerido, pasar
-    if (!requiredPermissions) {
+    // Sin permiso requerido → acceso libre
+    if (!requiredPermissions || requiredPermissions.length === 0) {
       return true;
     }
 
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user || !user.userId) {
-      this.logger.warn('No user in request');
-      throw new ForbiddenException('No user found');
+    if (!user?.userId) {
+      this.logger.warn("PermissionGuard: no hay usuario en el request");
+      throw new ForbiddenException("No autenticado");
     }
 
-    // Verificar todos los permisos requeridos
+    /**
+     * Short-circuit: si el usuario tiene roles embebidos en el JWT, usamos
+     * el caché de RBAC por userId (30s TTL en Redis) evitando la DB.
+     * Ambas rutas llaman a RbacService que ya tiene caché Redis.
+     */
     const hasPermissions = await this.rbacService.hasAllPermissions(
       user.userId,
       requiredPermissions,
@@ -39,9 +49,9 @@ export class PermissionGuard implements CanActivate {
 
     if (!hasPermissions) {
       this.logger.warn(
-        `User ${user.userId} denied permission. Required: ${requiredPermissions.join(', ')}`,
+        `Acceso denegado: userId=${user.userId} roles=[${(user.roles ?? []).join(", ")}] required=${requiredPermissions.join(", ")}`,
       );
-      throw new ForbiddenException('Insufficient permissions');
+      throw new ForbiddenException("Permisos insuficientes");
     }
 
     return true;

@@ -7,11 +7,17 @@ import { AuthController } from "./auth.controller";
 import { JwtStrategy } from "./strategies/jwt.strategy";
 import { RefreshTokenStrategy } from "./strategies/refresh-token.strategy";
 import { PrismaModule } from "../prisma/prisma.module";
+import { AuditModule } from "../audit/audit.module";
+import { EmailModule } from "../email/email.module";
+import { RbacModule } from "../rbac/rbac.module";
 import { ExtractUserMiddleware } from "./middleware/extract-user.middleware";
 
 @Module({
   imports: [
     PrismaModule,
+    AuditModule,
+    EmailModule,
+    RbacModule,
     PassportModule,
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService) =>

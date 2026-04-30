@@ -1,8 +1,8 @@
 import { Injectable, BadRequestException, Logger } from "@nestjs/common";
+import { randomUUID } from "crypto";
 import { Redis } from "ioredis";
 import { InjectRedis } from "@nestjs-modules/ioredis";
 import { PrismaService } from "../prisma/prisma.service";
-import { formatDateOnly, formatTimeOnly } from "../../utils/timezone";
 
 @Injectable()
 export class HoldsService {
@@ -39,7 +39,7 @@ export class HoldsService {
     }
 
     // Crear ID único para el hold
-    const holdId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const holdId = randomUUID();
 
     // TTL: 90 segundos
     const ttlSeconds = 90;
@@ -197,30 +197,21 @@ export class HoldsService {
     fromDate: Date,
     toDate: Date
   ): Promise<any[]> {
-    // Obtener todas las claves de hold
     const keys = await this.redis.keys("hold:*");
+    if (keys.length === 0) return [];
 
-    const holds: any[] = [];
+    // Batch fetch — one MGET instead of N individual GETs
+    const values = await this.redis.mget(...keys);
 
-    for (const key of keys) {
-      const data = await this.redis.get(key);
-      if (data) {
-        const hold = JSON.parse(data);
-
-        // Filtrar por rama y rango de fechas
-        if (hold.branch_id === branchId) {
-          const holdStart = new Date(hold.start_at);
-          const holdEnd = new Date(hold.end_at);
-
-          // Verificar si el hold se superpone con el rango
-          if (holdStart <= toDate && holdEnd >= fromDate) {
-            holds.push(hold);
-          }
-        }
-      }
-    }
-
-    return holds;
+    return values
+      .filter(Boolean)
+      .map((v) => JSON.parse(v))
+      .filter((hold) => {
+        if (hold.branch_id !== branchId) return false;
+        const holdStart = new Date(hold.start_at);
+        const holdEnd   = new Date(hold.end_at);
+        return holdStart <= toDate && holdEnd >= fromDate;
+      });
   }
 
   /**

@@ -1,136 +1,287 @@
-import { useState } from 'react';
+import { lazy, Suspense } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuthStore } from "./stores/auth.store";
 
-function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+import { AppLayout } from "./components/layout/AppLayout";
+import { LoginPage }         from "./pages/auth/LoginPage";
+import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
 
+// ── Lazy imports — cada módulo se carga solo al navegar ───────────────────────
+const DashboardPage          = lazy(() => import("./pages/dashboard/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const BranchDashboardPage    = lazy(() => import("./pages/dashboard/BranchDashboardPage").then((m) => ({ default: m.BranchDashboardPage })));
+const AppointmentsPage       = lazy(() => import("./pages/appointments/AppointmentsPage").then((m) => ({ default: m.AppointmentsPage })));
+const CalendarPage           = lazy(() => import("./pages/appointments/CalendarPage").then((m) => ({ default: m.CalendarPage })));
+const CustomersPage          = lazy(() => import("./pages/customers/CustomersPage").then((m) => ({ default: m.CustomersPage })));
+const CustomerDetailPage     = lazy(() => import("./pages/customers/CustomerDetailPage").then((m) => ({ default: m.CustomerDetailPage })));
+const SalesPage              = lazy(() => import("./pages/sales/SalesPage").then((m) => ({ default: m.SalesPage })));
+const SaleDetailPage         = lazy(() => import("./pages/sales/SaleDetailPage").then((m) => ({ default: m.SaleDetailPage })));
+const CashRegisterPage       = lazy(() => import("./pages/cash-register/CashRegisterPage").then((m) => ({ default: m.CashRegisterPage })));
+const CashRegisterDetailPage = lazy(() => import("./pages/cash-register/CashRegisterDetailPage").then((m) => ({ default: m.CashRegisterDetailPage })));
+const InventoryPage          = lazy(() => import("./pages/inventory/InventoryPage").then((m) => ({ default: m.InventoryPage })));
+const ReportsPage            = lazy(() => import("./pages/reports/ReportsPage").then((m) => ({ default: m.ReportsPage })));
+const ServicesPage           = lazy(() => import("./pages/services/ServicesPage").then((m) => ({ default: m.ServicesPage })));
+const ProductsPage           = lazy(() => import("./pages/products/ProductsPage").then((m) => ({ default: m.ProductsPage })));
+const UsersPage              = lazy(() => import("./pages/users/UsersPage").then((m) => ({ default: m.UsersPage })));
+const SettingsPage           = lazy(() => import("./pages/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const UserDetailPage         = lazy(() => import("./pages/users/UserDetailPage").then((m) => ({ default: m.UserDetailPage })));
+const ProfilePage            = lazy(() => import("./pages/users/ProfilePage").then((m) => ({ default: m.ProfilePage })));
+const BranchDetailPage       = lazy(() => import("./pages/branches/BranchDetailPage").then((m) => ({ default: m.BranchDetailPage })));
+const PlansPage              = lazy(() => import("./pages/plans/PlansPage").then((m) => ({ default: m.PlansPage })));
+const SubscriptionsPage      = lazy(() => import("./pages/subscriptions/SubscriptionsPage").then((m) => ({ default: m.SubscriptionsPage })));
+const AuditPage              = lazy(() => import("./pages/audit/AuditPage").then((m) => ({ default: m.AuditPage })));
+const IntegrationsPage       = lazy(() => import("./pages/integrations/IntegrationsPage").then((m) => ({ default: m.IntegrationsPage })));
+const SuppliersPage          = lazy(() => import("./pages/suppliers/SuppliersPage").then((m) => ({ default: m.SuppliersPage })));
+
+// ── Fallback de carga ─────────────────────────────────────────────────────────
+function PageLoader() {
   return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
-      <aside
-        className={`${
-          sidebarOpen ? 'w-64' : 'w-20'
-        } bg-gray-900 text-white transition-all duration-300 flex flex-col`}
-      >
-        <div className="p-4 border-b border-gray-700">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 hover:bg-gray-800 rounded-lg w-full"
-          >
-            ☰
-          </button>
-        </div>
-        <nav className="flex-1 overflow-y-auto p-4 space-y-2">
-          {sidebarOpen && (
-            <>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
-                Principal
-              </h3>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                📊 Dashboard
-              </a>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                📅 Citas
-              </a>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                👥 Clientes
-              </a>
-
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-6 mb-4">
-                Operaciones
-              </h3>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                💰 Caja
-              </a>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                🛍️ Ventas
-              </a>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                📦 Inventario
-              </a>
-
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-6 mb-4">
-                Configuración
-              </h3>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                ⚙️ Configuración
-              </a>
-              <a href="#" className="block px-3 py-2 rounded-lg hover:bg-gray-800 transition">
-                👤 Usuarios
-              </a>
-            </>
-          )}
-        </nav>
-      </aside>
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <header className="bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">Podoplus Admin</h1>
-          <div className="flex items-center space-x-4">
-            <button className="px-4 py-2 text-gray-600 hover:text-gray-900">🔔</button>
-            <button className="px-4 py-2 text-gray-600 hover:text-gray-900">👤</button>
-          </div>
-        </header>
-
-        {/* Content */}
-        <main className="flex-1 overflow-auto p-6">
-          <div className="max-w-6xl mx-auto">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-gray-500 text-sm font-medium">Citas Hoy</h3>
-                <p className="text-3xl font-bold text-gray-900 mt-2">12</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-gray-500 text-sm font-medium">Clientes</h3>
-                <p className="text-3xl font-bold text-gray-900 mt-2">248</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-gray-500 text-sm font-medium">Ingresos (Hoy)</h3>
-                <p className="text-3xl font-bold text-gray-900 mt-2">$2,450</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-gray-500 text-sm font-medium">No-Shows</h3>
-                <p className="text-3xl font-bold text-gray-900 mt-2">2</p>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">Citas Próximas</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Hora</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Cliente</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Servicio</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Estado</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-gray-200 hover:bg-gray-50">
-                      <td className="px-4 py-3">10:00 AM</td>
-                      <td className="px-4 py-3">Juan García</td>
-                      <td className="px-4 py-3">Limpieza Uñas</td>
-                      <td className="px-4 py-3">
-                        <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                          Confirmada
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button className="text-indigo-600 hover:text-indigo-900">Editar</button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
+    <div className="flex items-center justify-center h-full min-h-[200px]">
+      <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
     </div>
   );
 }
 
-export default App;
+// ── Root dashboard selector ───────────────────────────────────────────────────
+// Recepcionistas ven el Dashboard Sede; el resto ve el Dashboard general.
+function RootDashboard() {
+  const isReceptionist = useAuthStore(
+    (s) => s.hasRole("RECEPTIONIST") && !s.hasAnyRole(["SUPER_ADMIN", "GENERAL_MANAGER", "BRANCH_MANAGER"]),
+  );
+  return (
+    <Suspense fallback={<PageLoader />}>
+      {isReceptionist ? <BranchDashboardPage /> : <DashboardPage />}
+    </Suspense>
+  );
+}
+
+// ── Guards ────────────────────────────────────────────────────────────────────
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function PublicRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  if (isAuthenticated) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+export default function App() {
+  return (
+    <Routes>
+      {/* Public */}
+      <Route
+        path="/login"
+        element={
+          <PublicRoute>
+            <LoginPage />
+          </PublicRoute>
+        }
+      />
+      {/* Reset password — accesible siempre (el token es el guard real) */}
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+      {/* Protected — dentro de AppLayout */}
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      >
+        {/* Raíz: Dashboard general o Dashboard Sede según rol */}
+        <Route index element={<RootDashboard />} />
+
+        {/* Dashboard Sede — acceso directo (para bookmarks / links) */}
+        <Route
+          path="branch-dashboard"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <BranchDashboardPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="appointments"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <AppointmentsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="calendar"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <CalendarPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="customers"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <CustomersPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="customers/:id"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <CustomerDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="sales"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <SalesPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="sales/:id"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <SaleDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="cash-register"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <CashRegisterPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="cash-register/:id"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <CashRegisterDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="inventory"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <InventoryPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="reports"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ReportsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="services"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ServicesPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="products"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ProductsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="users"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <UsersPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="users/:id"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <UserDetailPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="settings"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <SettingsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="profile"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ProfilePage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="plans"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <PlansPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="subscriptions"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <SubscriptionsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="audit"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <AuditPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="integrations"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <IntegrationsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="suppliers"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <SuppliersPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="branches/:id"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <BranchDetailPage />
+            </Suspense>
+          }
+        />
+        <Route path="*"        element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}

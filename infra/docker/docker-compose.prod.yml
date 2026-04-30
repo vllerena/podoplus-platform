@@ -1,0 +1,147 @@
+version: '3.8'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Podoplus Platform — Stack de Producción
+#
+# Uso:
+#   docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Servicios:
+#   postgres  — Base de datos PostgreSQL
+#   redis     — Cache y colas BullMQ
+#   api       — NestJS REST API (aplica migraciones al arrancar)
+#   worker    — Jobs en background (no-shows, suscripciones, recordatorios)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── INFRAESTRUCTURA ────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: podoplus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-podoplus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-podoplus_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - podoplus-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-podoplus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: podoplus-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-} --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - podoplus-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ── APLICACIONES ───────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    container_name: podoplus-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      API_HOST: 0.0.0.0
+      TIMEZONE: ${TIMEZONE:-America/Lima}
+
+      DATABASE_URL: postgresql://${POSTGRES_USER:-podoplus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-podoplus_db}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASS: ${MAIL_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@podoplus.pe}
+      MAIL_SECURE: ${MAIL_SECURE:-false}
+      MAIL_TLS: ${MAIL_TLS:-false}
+      EMAIL_LOG_PATH: ${EMAIL_LOG_PATH:-/app/logs/email.jsonl}
+
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-7d}
+
+      WHATSAPP_BUSINESS_ACCOUNT_ID: ${WHATSAPP_BUSINESS_ACCOUNT_ID:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_WEBHOOK_TOKEN: ${WHATSAPP_WEBHOOK_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - podoplus-net
+    volumes:
+      - logs_data:/app/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
+    container_name: podoplus-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      TIMEZONE: ${TIMEZONE:-America/Lima}
+
+      DATABASE_URL: postgresql://${POSTGRES_USER:-podoplus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-podoplus_db}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      WHATSAPP_BUSINESS_ACCOUNT_ID: ${WHATSAPP_BUSINESS_ACCOUNT_ID:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks:
+      - podoplus-net
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+volumes:
+  postgres_data:
+  redis_data:
+  logs_data:
+
+networks:
+  podoplus-net:
+    driver: bridge

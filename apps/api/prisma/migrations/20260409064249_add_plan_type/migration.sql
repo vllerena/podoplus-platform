@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Plan" ADD COLUMN     "planType" TEXT NOT NULL DEFAULT 'SESSION';

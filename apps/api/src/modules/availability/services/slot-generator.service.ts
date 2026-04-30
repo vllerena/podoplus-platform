@@ -28,9 +28,9 @@ export class SlotGeneratorService {
     endDate.setHours(23, 59, 59, 999);
 
     while (currentDate <= endDate) {
-      const dateStr = currentDate.toISOString().split("T")[0];
+      const dateStr = this.localDateStr(currentDate);
       const daySchedule = daySchedules.find(
-        (ds) => ds.date.toISOString().split("T")[0] === dateStr
+        (ds) => this.localDateStr(ds.date) === dateStr
       );
 
       if (daySchedule) {
@@ -98,5 +98,9 @@ export class SlotGeneratorService {
     }
 
     return slots;
+  }
+
+  private localDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 }

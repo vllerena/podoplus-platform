@@ -10,9 +10,10 @@ import {
   BadRequestException,
   Logger,
 } from "@nestjs/common";
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from "@nestjs/swagger";
 import { HoldsService } from "./holds.service";
 import { JwtAuthGuard } from "../auth/guards/jwt.guard";
-import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { CurrentUser, CurrentUserData } from "../auth/decorators/current-user.decorator";
 import { CreateHoldDto } from "./dto/create-hold.dto";
 import {
   parseLocalDate,
@@ -22,6 +23,8 @@ import {
 } from "../../utils/timezone";
 import { RealtimeService } from "../realtime/realtime.service";
 
+@ApiTags("Holds")
+@ApiBearerAuth("access-token")
 @Controller("v1/holds")
 @UseGuards(JwtAuthGuard)
 export class HoldsController {
@@ -36,18 +39,11 @@ export class HoldsController {
    * POST /v1/holds
    * Crea un nuevo hold (bloqueo temporal)
    */
+  @ApiOperation({ summary: "Crear un hold (bloqueo temporal de slot)" })
+  @ApiResponse({ status: 200, description: "Hold creado correctamente. Expira en 90 segundos." })
+  @ApiResponse({ status: 400, description: "Parámetros inválidos o servicio no encontrado" })
   @Post()
-  async createHold(@Body() dto: CreateHoldDto, @CurrentUser() user: any) {
-    if (!dto.branchId || !dto.serviceId || !dto.startAt) {
-      throw new BadRequestException(
-        "branchId, serviceId, startAt son requeridos"
-      );
-    }
-
-    if (!dto.holderType || !dto.holderId) {
-      throw new BadRequestException("holderType y holderId son requeridos");
-    }
-
+  async createHold(@Body() dto: CreateHoldDto, @CurrentUser() user: CurrentUserData) {
     if (!isValidDate(dto.startAt)) {
       throw new BadRequestException(
         "startAt debe tener formato: YYYY-MM-DD HH:mm (ej: 2026-01-20 10:00)"
@@ -81,7 +77,7 @@ export class HoldsController {
       throw new BadRequestException("startAt debe ser menor que endAt");
     }
 
-    this.logger.log(`Usuario ${user.sub} creando hold en sede ${dto.branchId}`);
+    this.logger.log(`Usuario ${user.userId} creando hold en sede ${dto.branchId}`);
 
     const holdResponse = await this.holdsService.createHold(
       dto.branchId,
@@ -90,7 +86,7 @@ export class HoldsController {
       endAt,
       dto.holderType,
       dto.holderId,
-      user.sub
+      user.userId
     );
 
     this.realtimeService.notifyHoldCreated({
@@ -128,9 +124,13 @@ export class HoldsController {
   /**
    * DELETE /v1/holds/:id
    */
+  @ApiOperation({ summary: "Liberar un hold por ID" })
+  @ApiResponse({ status: 200, description: "Hold liberado correctamente" })
+  @ApiResponse({ status: 400, description: "Hold no encontrado o ya expirado" })
+  @ApiParam({ name: "id", description: "UUID del hold" })
   @Delete(":id")
-  async releaseHold(@Param("id") holdId: string, @CurrentUser() user: any) {
-    this.logger.log(`Usuario ${user.sub} liberando hold ${holdId}`);
+  async releaseHold(@Param("id") holdId: string, @CurrentUser() user: CurrentUserData) {
+    this.logger.log(`Usuario ${user.userId} liberando hold ${holdId}`);
 
     const hold = await this.holdsService.getHold(holdId);
     await this.holdsService.releaseHold(holdId);
@@ -149,6 +149,10 @@ export class HoldsController {
   /**
    * GET /v1/holds/:id
    */
+  @ApiOperation({ summary: "Obtener un hold por ID" })
+  @ApiResponse({ status: 200, description: "Hold encontrado" })
+  @ApiResponse({ status: 400, description: "Hold no encontrado o expirado" })
+  @ApiParam({ name: "id", description: "UUID del hold" })
   @Get(":id")
   async getHold(@Param("id") holdId: string) {
     const hold = await this.holdsService.getHold(holdId);
@@ -161,12 +165,18 @@ export class HoldsController {
   /**
    * GET /v1/holds
    */
+  @ApiOperation({ summary: "Listar holds activos de una sede en un rango de fechas" })
+  @ApiResponse({ status: 200, description: "Lista de holds devuelta correctamente" })
+  @ApiResponse({ status: 400, description: "Parámetros inválidos o faltantes" })
+  @ApiQuery({ name: "branchId", required: true, description: "UUID de la sede" })
+  @ApiQuery({ name: "from", required: true, description: "Fecha/hora inicio en formato YYYY-MM-DD HH:mm" })
+  @ApiQuery({ name: "to", required: true, description: "Fecha/hora fin en formato YYYY-MM-DD HH:mm" })
   @Get()
   async getHolds(
     @Query("branchId") branchId?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
-    @CurrentUser() user?: any
+    @CurrentUser() user?: CurrentUserData
   ) {
     if (!branchId || !from || !to) {
       throw new BadRequestException("branchId, from, to son requeridos");
@@ -186,7 +196,7 @@ export class HoldsController {
     }
 
     this.logger.log(
-      `Usuario ${user?.sub} consultando holds de sede ${branchId}`
+      `Usuario ${user?.userId} consultando holds de sede ${branchId}`
     );
 
     const holds = await this.holdsService.getHoldsForRange(
@@ -209,9 +219,13 @@ export class HoldsController {
   /**
    * POST /v1/holds/:id/renew
    */
+  @ApiOperation({ summary: "Renovar un hold por 90 segundos adicionales" })
+  @ApiResponse({ status: 200, description: "Hold renovado correctamente" })
+  @ApiResponse({ status: 400, description: "Hold no encontrado o ya expirado" })
+  @ApiParam({ name: "id", description: "UUID del hold" })
   @Post(":id/renew")
-  async renewHold(@Param("id") holdId: string, @CurrentUser() user: any) {
-    this.logger.log(`Usuario ${user.sub} renovando hold ${holdId}`);
+  async renewHold(@Param("id") holdId: string, @CurrentUser() user: CurrentUserData) {
+    this.logger.log(`Usuario ${user.userId} renovando hold ${holdId}`);
     const hold = await this.holdsService.renewHold(holdId);
 
     const holdData = await this.holdsService.getHold(holdId);

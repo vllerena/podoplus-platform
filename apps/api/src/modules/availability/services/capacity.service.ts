@@ -2,6 +2,20 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CapacityInfo } from "../types/availability.types";
 
+export interface CapacityPreload {
+  appointments: Array<{ startAt: Date; endAt: Date }>;
+  rules: Array<{
+    scopeType: string;
+    date: Date | null;
+    weekday: number | null;
+    startTime: string | null;
+    endTime: string | null;
+    capacity: number;
+    priority: number;
+  }>;
+  defaultCapacity: number;
+}
+
 @Injectable()
 export class CapacityService {
   private readonly logger = new Logger("CapacityService");
@@ -118,5 +132,91 @@ export class CapacityService {
       activeHolds,
       availableCapacity: Math.max(0, availableCapacity),
     };
+  }
+
+  /**
+   * Pre-carga en UNA sola ronda de queries todos los datos necesarios para
+   * calcular la capacidad de todos los slots en un rango de fechas.
+   * Usar junto con computeSlotCapacity() para eliminar el N+1 por slot.
+   */
+  async preloadForRange(
+    branchId: string,
+    from: Date,
+    to: Date
+  ): Promise<CapacityPreload> {
+    const toEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999);
+
+    const [appointments, rules, branch] = await Promise.all([
+      this.prisma.appointment.findMany({
+        where: {
+          branchId,
+          status: { in: ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"] },
+          startAt: { lt: toEnd },
+          endAt:   { gt: from },
+        },
+        select: { startAt: true, endAt: true },
+      }),
+      this.prisma.branchCapacityRule.findMany({
+        where:   { branchId, isActive: true },
+        orderBy: { priority: "desc" },
+        select:  { scopeType: true, date: true, weekday: true, startTime: true, endTime: true, capacity: true, priority: true },
+      }),
+      this.prisma.branch.findUnique({
+        where:  { id: branchId },
+        select: { defaultCapacity: true },
+      }),
+    ]);
+
+    return {
+      appointments,
+      rules,
+      defaultCapacity: branch?.defaultCapacity ?? 6,
+    };
+  }
+
+  /**
+   * Calcula la capacidad para un slot usando datos pre-cargados (sin DB).
+   * Elimina el N+1: llámalo en un .map() después de preloadForRange().
+   */
+  computeSlotCapacity(
+    slotStart: Date,
+    slotEnd: Date,
+    preload: CapacityPreload,
+    activeHolds = 0
+  ): CapacityInfo {
+    const totalCapacity = this.resolveCapacitySync(slotStart, preload.rules, preload.defaultCapacity);
+    const occupiedSlots = preload.appointments.filter(
+      (a) => a.startAt < slotEnd && a.endAt > slotStart
+    ).length;
+    const availableCapacity = Math.max(0, totalCapacity - occupiedSlots - activeHolds);
+    return { totalCapacity, occupiedSlots, activeHolds, availableCapacity };
+  }
+
+  private resolveCapacitySync(
+    slotStart: Date,
+    rules: CapacityPreload["rules"],
+    defaultCapacity: number
+  ): number {
+    const slotDayStart = new Date(slotStart.getFullYear(), slotStart.getMonth(), slotStart.getDate()).getTime();
+    const slotDayEnd   = new Date(slotStart.getFullYear(), slotStart.getMonth(), slotStart.getDate() + 1).getTime();
+
+    // 1. DATE override
+    const dateRule = rules
+      .filter((r) => r.scopeType === "DATE" && r.date !== null &&
+        r.date.getTime() >= slotDayStart && r.date.getTime() < slotDayEnd)
+      .sort((a, b) => b.priority - a.priority)[0];
+    if (dateRule) return dateRule.capacity;
+
+    // 2. WEEKDAY_RANGE override
+    const weekday = slotStart.getDay();
+    const timeStr = `${String(slotStart.getHours()).padStart(2, "0")}:${String(slotStart.getMinutes()).padStart(2, "0")}`;
+    const weekdayRule = rules
+      .filter((r) => r.scopeType === "WEEKDAY_RANGE" && r.weekday === weekday &&
+        r.startTime !== null && r.endTime !== null &&
+        r.startTime! <= timeStr && r.endTime! >= timeStr)
+      .sort((a, b) => b.priority - a.priority)[0];
+    if (weekdayRule) return weekdayRule.capacity;
+
+    return defaultCapacity;
   }
 }

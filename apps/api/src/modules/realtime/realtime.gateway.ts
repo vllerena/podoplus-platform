@@ -8,14 +8,15 @@ import {
 } from "@nestjs/websockets";
 import { Server, Socket } from "socket.io";
 import { Logger, Injectable } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import { RealtimeService } from "./realtime.service";
 import { WebSocketEvent } from "../../websocket_types";
 
 @WebSocketGateway({
   cors: {
-    origin: "*",
+    origin: process.env.FRONTEND_URL || "*",
     methods: ["GET", "POST"],
-    credentials: false,
+    credentials: true,
   },
   namespace: "/realtime",
   transports: ["websocket", "polling"],
@@ -28,22 +29,46 @@ export class RealtimeGateway
   private readonly logger = new Logger("RealtimeGateway");
   private connectedUsers = new Map<string, string[]>();
 
-  constructor(private realtimeService: RealtimeService) {
+  constructor(
+    private readonly realtimeService: RealtimeService,
+    private readonly jwtService: JwtService,
+  ) {
     this.realtimeService.setGateway(this);
   }
 
-  afterInit(server: Server) {
-    this.logger.log(`✅ WebSocket Gateway initialized on namespace /realtime`);
-    this.logger.log(`✅ Server listening on ws://localhost:3000/realtime`);
+  afterInit(_server: Server) {
+    this.logger.log("WebSocket Gateway initialized on namespace /realtime");
   }
 
   handleConnection(client: Socket) {
-    const userId =
-      client.handshake.auth?.userId ||
-      client.handshake.query?.userId ||
-      client.id;
+    const token =
+      client.handshake.auth?.token ||
+      (client.handshake.headers?.authorization?.startsWith("Bearer ")
+        ? client.handshake.headers.authorization.slice(7)
+        : undefined);
 
-    this.logger.log(`✅ Client connected: ${client.id} (userId: ${userId})`);
+    if (!token) {
+      this.logger.warn(`WS connection rejected — no token: ${client.id}`);
+      client.emit("error", { message: "Authentication token required" });
+      client.disconnect(true);
+      return;
+    }
+
+    let payload: { sub?: string; userId?: string } | null = null;
+    try {
+      payload = this.jwtService.verify<{ sub?: string; userId?: string }>(token);
+    } catch {
+      this.logger.warn(`WS connection rejected — invalid token: ${client.id}`);
+      client.emit("error", { message: "Invalid or expired token" });
+      client.disconnect(true);
+      return;
+    }
+
+    const userId = payload.userId ?? payload.sub ?? client.id;
+    // Attach userId to socket data for later use
+    client.data.userId = userId;
+
+    this.logger.log(`Client connected: ${client.id} (userId: ${userId})`);
 
     client.emit(WebSocketEvent.CONNECTED, {
       event: WebSocketEvent.CONNECTED,
@@ -63,9 +88,8 @@ export class RealtimeGateway
   }
 
   handleDisconnect(client: Socket) {
-    const userId =
-      client.handshake.auth?.userId || client.handshake.query?.userId;
-    this.logger.log(`❌ Client disconnected: ${client.id}`);
+    const userId: string | undefined = client.data?.userId;
+    this.logger.log(`Client disconnected: ${client.id}`);
 
     if (userId && this.connectedUsers.has(userId)) {
       const sockets = this.connectedUsers.get(userId);
@@ -83,9 +107,7 @@ export class RealtimeGateway
   handleSubscribeBranch(client: Socket, data: { branchId: string }) {
     const room = `branch:${data.branchId}`;
     client.join(room);
-    this.logger.log(
-      `📡 Client ${client.id} subscribed to branch: ${data.branchId}`
-    );
+    this.logger.debug(`Client ${client.id} subscribed to branch: ${data.branchId}`);
     return { success: true, room };
   }
 
@@ -93,9 +115,7 @@ export class RealtimeGateway
   handleUnsubscribeBranch(client: Socket, data: { branchId: string }) {
     const room = `branch:${data.branchId}`;
     client.leave(room);
-    this.logger.log(
-      `📡 Client ${client.id} unsubscribed from branch: ${data.branchId}`
-    );
+    this.logger.debug(`Client ${client.id} unsubscribed from branch: ${data.branchId}`);
     return { success: true, room };
   }
 
@@ -103,9 +123,7 @@ export class RealtimeGateway
   handleSubscribeCustomer(client: Socket, data: { customerId: string }) {
     const room = `customer:${data.customerId}`;
     client.join(room);
-    this.logger.log(
-      `📡 Client ${client.id} subscribed to customer: ${data.customerId}`
-    );
+    this.logger.debug(`Client ${client.id} subscribed to customer: ${data.customerId}`);
     return { success: true, room };
   }
 
@@ -113,14 +131,12 @@ export class RealtimeGateway
   handleUnsubscribeCustomer(client: Socket, data: { customerId: string }) {
     const room = `customer:${data.customerId}`;
     client.leave(room);
-    this.logger.log(
-      `📡 Client ${client.id} unsubscribed from customer: ${data.customerId}`
-    );
+    this.logger.debug(`Client ${client.id} unsubscribed from customer: ${data.customerId}`);
     return { success: true, room };
   }
 
   @SubscribeMessage("ping")
-  handlePing(client: Socket) {
+  handlePing(_client: Socket) {
     return { pong: true, timestamp: new Date().toISOString() };
   }
 
