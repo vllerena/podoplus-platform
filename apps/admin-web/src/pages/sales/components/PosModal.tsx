@@ -15,6 +15,7 @@ import {
 import { useBranchContext } from "@/hooks/use-branch-context";
 import { fmt } from "@/lib/sale-helpers";
 import { cn } from "@/lib/utils";
+import { generateUUID } from "@/lib/uuid";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface CartItem {
@@ -254,7 +255,7 @@ export function PosModal({ open, onClose, onSuccess }: Props) {
           c.key === existing.key ? { ...c, quantity: c.quantity + 1 } : c
         );
       }
-      return [...prev, { ...item, key: crypto.randomUUID(), quantity: 1 }];
+      return [...prev, { ...item, key: generateUUID(), quantity: 1 }];
     });
   }
 
@@ -277,7 +278,7 @@ export function PosModal({ open, onClose, onSuccess }: Props) {
     );
   }
 
-  const idemKey = useRef(crypto.randomUUID());
+  const idemKey = useRef(generateUUID());
 
   async function handlePayClick() {
     if (!activeBranchId || cart.length === 0 || createSale.isPending) return;
@@ -303,7 +304,7 @@ export function PosModal({ open, onClose, onSuccess }: Props) {
           unit_price: c.price,
         })),
       });
-      idemKey.current = crypto.randomUUID();
+      idemKey.current = generateUUID();
       setCart([]);
       setDiscount("");
       setCustomerId("");

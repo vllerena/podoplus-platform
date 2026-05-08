@@ -18,6 +18,7 @@ import { useBusinessUnit }  from "@/hooks/use-business-units";
 import { useOpenRegister }  from "@/hooks/use-cash-register";
 import { fmt }              from "@/lib/sale-helpers";
 import { cn }               from "@/lib/utils";
+import { generateUUID }     from "@/lib/uuid";
 import type { Sale }        from "@/hooks/use-sales";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -333,13 +334,13 @@ export function NewSaleModal({ open, onClose, onSuccess, prefill }: Props) {
   const [globalDiscPct,   setGlobalDiscPct]   = useState("");
   const [paymentMethod,   setPaymentMethod]   = useState<PaymentMethod>("CASH");
   const [paymentSplits,   setPaymentSplits]   = useState<PaymentSplit[]>([
-    { key: crypto.randomUUID(), method: "CASH", amount: "" },
+    { key: generateUUID(), method: "CASH", amount: "" },
   ]);
   const [notes, setNotes] = useState("");
 
   const hoveringCustomer = useRef(false);
   const [customerOpen, setCustomerOpen] = useState(false);
-  const idemKey = useRef(crypto.randomUUID());
+  const idemKey = useRef(generateUUID());
   // Controla que el prefill se aplique solo una vez por apertura del modal
   const prefillApplied = useRef(false);
 
@@ -379,7 +380,7 @@ export function NewSaleModal({ open, onClose, onSuccess, prefill }: Props) {
       const svc = allServices.find(s => s.id === prefill.serviceId);
       if (svc) {
         setItems([{
-          key:            crypto.randomUUID(),
+          key:            generateUUID(),
           item_type:      "SERVICE",
           service_id:     svc.id,
           label:          svc.name,
@@ -427,7 +428,7 @@ export function NewSaleModal({ open, onClose, onSuccess, prefill }: Props) {
   // ── Item helpers ──────────────────────────────────────────────────────────
 
   const addItem = useCallback((partial: AddItemPayload) => {
-    setItems(prev => [...prev, { ...partial, key: crypto.randomUUID(), quantity: 1, discount_pct: "" }]);
+    setItems(prev => [...prev, { ...partial, key: generateUUID(), quantity: 1, discount_pct: "" }]);
   }, []);
 
   const removeItem = (key: string) => setItems(prev => prev.filter(i => i.key !== key));
@@ -437,7 +438,7 @@ export function NewSaleModal({ open, onClose, onSuccess, prefill }: Props) {
   // ── Payment splits ────────────────────────────────────────────────────────
 
   const addSplit = () =>
-    setPaymentSplits(prev => [...prev, { key: crypto.randomUUID(), method: "CASH", amount: "" }]);
+    setPaymentSplits(prev => [...prev, { key: generateUUID(), method: "CASH", amount: "" }]);
   const removeSplit = (key: string) =>
     setPaymentSplits(prev => prev.filter(s => s.key !== key));
   const updateSplit = (key: string, field: keyof PaymentSplit, value: any) =>
@@ -472,9 +473,9 @@ export function NewSaleModal({ open, onClose, onSuccess, prefill }: Props) {
     setCustomerSearch(""); setCustomerId(""); setCustomerName(""); setCustomerDoc("");
     setBilling({}); setShowBilling(false);
     setItems([]); setGlobalDiscPct(""); setPaymentMethod("CASH");
-    setPaymentSplits([{ key: crypto.randomUUID(), method: "CASH", amount: "" }]);
+    setPaymentSplits([{ key: generateUUID(), method: "CASH", amount: "" }]);
     setNotes("");
-    idemKey.current = crypto.randomUUID();
+    idemKey.current = generateUUID();
     onClose();
   };
 
@@ -924,7 +925,7 @@ export function NewSaleModal({ open, onClose, onSuccess, prefill }: Props) {
                       onClick={() => {
                         setPaymentMethod(o.value);
                         if (o.value === "MIXED" && paymentSplits.length === 0) {
-                          setPaymentSplits([{ key: crypto.randomUUID(), method: "CASH", amount: "" }]);
+                          setPaymentSplits([{ key: generateUUID(), method: "CASH", amount: "" }]);
                         }
                       }}
                       className={cn(

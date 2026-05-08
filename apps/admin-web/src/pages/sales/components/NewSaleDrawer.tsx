@@ -12,6 +12,7 @@ import { useBranchContext } from "@/hooks/use-branch-context";
 import { useCustomers } from "@/hooks/use-customers";
 import { useDebounce }  from "@/hooks/use-debounce";
 import { fmt }          from "@/lib/sale-helpers";
+import { generateUUID } from "@/lib/uuid";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ export function NewSaleDrawer({ open, onClose }: Props) {
   const [serviceSearch,  setServiceSearch]  = useState("");
 
   // Idempotency key: stable per "session" of this drawer open, regenerated on close
-  const idemKeyRef = useRef(crypto.randomUUID());
+  const idemKeyRef = useRef(generateUUID());
 
   const debouncedCustomerSearch = useDebounce(customerSearch, 300);
   const debouncedServiceSearch  = useDebounce(serviceSearch,  200);
@@ -116,7 +117,7 @@ export function NewSaleDrawer({ open, onClose }: Props) {
     setBranchId(""); setCustomerSearch(""); setCustomerId("");
     setCustomerName(""); setItems([]); setDiscount("");
     setPaymentMethod("CASH"); setNotes(""); setServiceSearch("");
-    idemKeyRef.current = crypto.randomUUID(); // new key for next open
+    idemKeyRef.current = generateUUID(); // new key for next open
     onClose();
   };
 
