@@ -9,6 +9,7 @@ import { useAppointmentsRange, useBranches, type Appointment } from "@/hooks/use
 import { WeekCalendar }           from "./components/WeekCalendar";
 import { BookingModal }           from "./components/BookingModal";
 import { AppointmentDetailSheet } from "./components/AppointmentDetailSheet";
+import { NewSaleModal, type SalePrefill } from "@/pages/sales/components/NewSaleModal";
 import { cn } from "@/lib/utils";
 import { type AppointmentStatus, STATUS_LABEL } from "@/lib/appointment-status";
 
@@ -31,6 +32,7 @@ function getWeekDates(weekStart: Date): Date[] {
   });
 }
 
+/** Devuelve la fecha YYYY-MM-DD del timestamp naive Lima (UTC = Lima local). */
 function toDateStr(date: Date): string {
   if (!date || isNaN(date.getTime())) return "";
   return date.toISOString().slice(0, 10);
@@ -59,7 +61,11 @@ const MOBILE_DAY_LETTERS = ["L", "M", "X", "J", "V", "S", "D"];
 function fmtTime(iso: string): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  // timeZone: "UTC" muestra la hora naive Lima almacenada en el campo UTC.
+  return d.toLocaleTimeString("es-PE", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "UTC",
+  });
 }
 
 function hexToRgb(hex: string) {
@@ -231,6 +237,23 @@ export function CalendarPage() {
   const [selectedApptId, setSelectedApptId] = useState<string | null>(null);
   /** "timeline" = hour grid (desktop-style), "agenda" = card list */
   const [mobileView,     setMobileView]     = useState<"agenda" | "timeline">("agenda");
+
+  // Modal de nueva venta — se abre automáticamente al completar una cita
+  const [saleOpen,    setSaleOpen]    = useState(false);
+  const [salePrefill, setSalePrefill] = useState<SalePrefill | undefined>();
+
+  const handleApptCompleted = (appt: Appointment) => {
+    setSalePrefill({
+      appointmentId: appt.id,
+      customerId:    appt.customerId   ?? appt.customer?.id,
+      customerName:  appt.customer
+        ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+        : undefined,
+      customerDoc:   appt.customer?.documentNumber,
+      serviceId:     appt.serviceId    ?? appt.service?.id,
+    });
+    setSaleOpen(true);
+  };
 
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
   const fromStr   = toDateStr(weekDates[0]);
@@ -615,6 +638,14 @@ export function CalendarPage() {
       <AppointmentDetailSheet
         appointmentId={selectedApptId}
         onClose={() => setSelectedApptId(null)}
+        onCompleted={handleApptCompleted}
+      />
+
+      {/* Modal de venta — se abre automáticamente al completar una cita */}
+      <NewSaleModal
+        open={saleOpen}
+        onClose={() => { setSaleOpen(false); setSalePrefill(undefined); }}
+        prefill={salePrefill}
       />
     </>
   );

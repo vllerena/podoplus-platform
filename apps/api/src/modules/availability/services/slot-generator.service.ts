@@ -49,7 +49,13 @@ export class SlotGeneratorService {
   }
 
   /**
-   * Genera slots para un día específico
+   * Genera slots para un día específico.
+   *
+   * ESTRATEGIA NAIVE LIMA: los timestamps de los slots se construyen con
+   * setUTCHours() para que queden almacenados como hora Lima en el campo UTC,
+   * igual que los appointments (parseLocalDate usa Date.UTC).
+   * Ejemplo: Lima 16:00 → slot.startAt = "2026-05-04T16:00:00.000Z" (naive).
+   * Así la comparación de solapamiento en CapacityService es directa (UTC vs UTC).
    */
   private generateSlotsForDay(
     daySchedule: DaySchedule,
@@ -63,11 +69,13 @@ export class SlotGeneratorService {
     const [startHour, startMin] = daySchedule.startTime.split(":").map(Number);
     const [endHour, endMin] = daySchedule.endTime.split(":").map(Number);
 
+    // Usar setUTCHours para construir timestamps naive Lima:
+    // el campo UTC almacena directamente la hora Lima (sin offset de zona).
     let slotStart = new Date(daySchedule.date);
-    slotStart.setHours(startHour, startMin, 0, 0);
+    slotStart.setUTCHours(startHour, startMin, 0, 0);
 
     const dayEnd = new Date(daySchedule.date);
-    dayEnd.setHours(endHour, endMin, 0, 0);
+    dayEnd.setUTCHours(endHour, endMin, 0, 0);
 
     // Generar slots cada 30 minutos (cambio de 15)
     while (slotStart.getTime() + totalDuration * 60000 <= dayEnd.getTime()) {

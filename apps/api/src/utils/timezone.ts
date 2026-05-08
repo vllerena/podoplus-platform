@@ -1,29 +1,31 @@
 /**
  * Utilidades para manejo de timezone America/Lima
  *
- * ESTRATEGIA:
- * - Las fechas se almacenan como Date objects
- * - Siempre se interpretan en timezone America/Lima (sin conversión)
- * - Se comparan directamente sin ajustes de offset
+ * ESTRATEGIA "NAIVE LIMA":
+ * - Los timestamps se almacenan como tiempo Lima local en el campo UTC de la BD.
+ *   Ejemplo: 10:00 Lima → almacenado como "2026-05-05T10:00:00.000Z" (sin offset).
+ * - Para leer la hora correcta se usan getUTCHours/getUTCDate/etc. (= hora naive).
+ * - parseLocalDate almacena con Date.UTC → preserva exactamente la hora recibida.
+ * - El slot generator usa setHours() local (servidor UTC) → genera naive automáticamente.
  */
 
 /**
- * Formatea una fecha a formato amigable YYYY-MM-DD
+ * Formatea una fecha a formato amigable YYYY-MM-DD (naive Lima desde campo UTC)
  */
 export function formatDateOnly(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  const year = d.getUTCFullYear();
+  const year  = d.getUTCFullYear();
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
+  const day   = String(d.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
 /**
- * Formatea una hora a formato amigable HH:mm
+ * Formatea una hora a formato amigable HH:mm (naive Lima desde campo UTC)
  */
 export function formatTimeOnly(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  const hours = String(d.getUTCHours()).padStart(2, "0");
+  const hours   = String(d.getUTCHours()).padStart(2, "0");
   const minutes = String(d.getUTCMinutes()).padStart(2, "0");
   return `${hours}:${minutes}`;
 }
@@ -38,31 +40,28 @@ export function formatDateTime(date: Date | string): string {
 }
 
 /**
- * Convierte un string de formato amigable a Date
+ * Convierte un string de formato "YYYY-MM-DD HH:mm" a Date naive Lima.
  * Formato esperado: "2026-01-20" o "2026-01-20 10:00"
  *
- * IMPORTANTE:
- * El valor se crea como UTC internamente pero se interpreta como
- * si fuera la hora LOCAL que el usuario ingresó.
- * No hay conversión de timezone - se almacena literalmente.
+ * ESTRATEGIA NAIVE LIMA: los valores HH:mm representan la hora Lima local.
+ * Date.UTC los almacena sin ajuste → la BD guarda "10:00" para Lima 10:00.
+ * getUTCHours() sobre ese valor devuelve 10 → se lee correctamente como naive.
  *
  * Ejemplo:
- * Input: "2026-01-20 10:00"
- * Output: Date(2026, 0, 20, 10, 0) = "2026-01-20T10:00:00.000Z"
+ *   Slot: startAt = "2026-05-05T10:00:00.000Z"  (Lima 10:00, naive)
+ *   Frontend envía: start_date="2026-05-05", start_time="10:00"  ← Lima local
+ *   parseLocalDate("2026-05-05 10:00") = 2026-05-05T10:00:00Z    ← naive ✓
  */
 export function parseLocalDate(dateString: string): Date {
   const parts = dateString.trim().split(" ");
-  const datePart = parts[0]; // "2026-01-20"
-  const timePart = parts[1] || "00:00"; // "10:00"
+  const datePart = parts[0]; // "2026-05-04"
+  const timePart = parts[1] || "00:00"; // "21:00"
 
   const [year, month, day] = datePart.split("-").map(Number);
-  const [hours, minutes] = timePart.split(":").map(Number);
+  const [hours, minutes]   = timePart.split(":").map(Number);
 
-  // Crear directamente como UTC sin ajustes
-  // De esta forma "2026-01-20 10:00" se almacena como 2026-01-20T10:00:00Z
-  const date = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
-
-  return date;
+  // Date.UTC garantiza que se almacene exactamente el valor recibido, sin ajuste.
+  return new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
 }
 
 /**
@@ -83,7 +82,7 @@ export function minutesToTimeString(minutes: number): string {
 }
 
 /**
- * Obtiene el número de día de la semana (0=domingo, 6=sábado)
+ * Obtiene el número de día de la semana (0=domingo, 6=sábado) desde campo UTC naive
  */
 export function getDayOfWeek(date: Date | string): number {
   const d = typeof date === "string" ? new Date(date) : date;
@@ -129,14 +128,14 @@ export function getMonthName(date: Date | string): string {
 }
 
 /**
- * Formatea fecha en formato amigable: "Lunes, 20 de Enero de 2026"
+ * Formatea fecha en formato amigable: "Lunes, 20 de Enero de 2026" (naive Lima)
  */
 export function formatFriendlyDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  const dayName = getDayName(d.getUTCDay());
-  const dayNum = d.getUTCDate();
+  const dayName   = getDayName(d.getUTCDay());
+  const dayNum    = d.getUTCDate();
   const monthName = getMonthName(d);
-  const year = d.getUTCFullYear();
+  const year      = d.getUTCFullYear();
   return `${dayName}, ${dayNum} de ${monthName} de ${year}`;
 }
 

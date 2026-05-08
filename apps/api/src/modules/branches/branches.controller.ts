@@ -441,4 +441,25 @@ export class BranchesController {
   ) {
     return this.branchesService.deleteSerie(id, serieId, user.userId);
   }
+
+  // ─── Dashboard de sede ───────────────────────────────────────────────────
+
+  /**
+   * GET /v1/branches/:id/dashboard?date=YYYY-MM-DD
+   *
+   * Devuelve en una sola llamada los KPIs del día para el Dashboard Sede:
+   * citas (por estado), ocupación, ventas del día y estado de la caja.
+   * Si `date` no se envía, usa la fecha actual en hora Lima (America/Lima).
+   */
+  @ApiOperation({ summary: "Obtener KPIs del día para el Dashboard Sede" })
+  @ApiResponse({ status: 200, description: "KPIs del día retornados exitosamente." })
+  @ApiResponse({ status: 404, description: "Sede no encontrada." })
+  @Get(":id/dashboard")
+  @RequireBranchAccess("id")
+  getDashboard(
+    @Param("id")       id: string,
+    @Query("date")     date?: string,
+  ) {
+    return this.branchesService.getDashboard(id, date);
+  }
 }

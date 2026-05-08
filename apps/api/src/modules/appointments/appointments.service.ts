@@ -164,6 +164,7 @@ export class AppointmentsService {
             branchId,
             status: {
               in: [
+                AppointmentStatus.PENDING,
                 AppointmentStatus.CONFIRMED,
                 AppointmentStatus.CHECKED_IN,
                 AppointmentStatus.IN_SERVICE,
@@ -332,6 +333,7 @@ export class AppointmentsService {
             branchId,
             status: {
               in: [
+                AppointmentStatus.PENDING,
                 AppointmentStatus.CONFIRMED,
                 AppointmentStatus.CHECKED_IN,
                 AppointmentStatus.IN_SERVICE,
@@ -470,6 +472,7 @@ export class AppointmentsService {
           id: { not: appointmentId },
           status: {
             in: [
+              AppointmentStatus.PENDING,
               AppointmentStatus.CONFIRMED,
               AppointmentStatus.CHECKED_IN,
               AppointmentStatus.IN_SERVICE,

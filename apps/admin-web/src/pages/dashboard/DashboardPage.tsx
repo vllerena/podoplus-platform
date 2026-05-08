@@ -66,7 +66,7 @@ const WEEKLY_REVENUE = [980, 1240, 1050, 1680, 1320, 1560, 1840];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
 
 function greeting() {
   const h = new Date().getHours();

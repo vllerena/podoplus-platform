@@ -17,25 +17,34 @@ const DAYS   = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sáb
 const MONTHS = ["enero","febrero","marzo","abril","mayo","junio",
                 "julio","agosto","septiembre","octubre","noviembre","diciembre"];
 
+const LIMA_TZ = "America/Lima";
+
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: LIMA_TZ }).format(new Date());
 }
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toLocaleTimeString("es-PE", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "UTC",
+  });
 }
 
 function fmtDateLong(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  return `${DAYS[date.getDay()]}, ${d} de ${MONTHS[m - 1]} de ${y}`;
+  // Usamos Date.UTC para que getUTCDay/Date/Month den los valores Lima naive.
+  const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  return `${DAYS[date.getUTCDay()]}, ${d} de ${MONTHS[m - 1]} de ${y}`;
 }
 
 function fmtCurrentAppt(iso: string): string {
   const d = new Date(iso);
-  const time = d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${DAYS[d.getDay()]}, ${d.getDate()} de ${MONTHS[d.getMonth()]} · ${time}`;
+  const time = d.toLocaleTimeString("es-PE", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "UTC",
+  });
+  return `${DAYS[d.getUTCDay()]}, ${d.getUTCDate()} de ${MONTHS[d.getUTCMonth()]} · ${time}`;
 }
 
 // ── Step badge ────────────────────────────────────────────────────────────────

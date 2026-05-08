@@ -880,4 +880,170 @@ export class BranchesService {
       updatedAt:     s.updatedAt?.toISOString(),
     };
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // BRANCH DASHBOARD
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * GET /v1/branches/:id/dashboard?date=YYYY-MM-DD
+   *
+   * Devuelve en una sola consulta todos los datos necesarios para el
+   * Dashboard Sede: citas del día, ventas, caja abierta y ocupación.
+   */
+  async getDashboard(branchId: string, dateStr?: string) {
+    // ── Fecha de consulta (hoy por defecto) ────────────────────────────────
+    const tz = "America/Lima";
+    const today = dateStr ?? new Date().toLocaleDateString("en-CA", { timeZone: tz });
+
+    const dayStart = new Date(`${today}T00:00:00-05:00`);
+    const dayEnd   = new Date(`${today}T23:59:59-05:00`);
+
+    // ── Consultas paralelas ────────────────────────────────────────────────
+    // Primero obtenemos la caja abierta para luego calcular su balance
+    const cashRegister = await this.prisma.cashRegister.findFirst({
+      where:   { branchId, status: "OPEN" },
+      select:  { id: true, openingBalance: true, status: true },
+      orderBy: { openedAt: "desc" },
+    });
+
+    // Balance real = saldo inicial + entradas - salidas
+    let cashBalance = 0;
+    if (cashRegister) {
+      const [inAgg, outAgg] = await Promise.all([
+        this.prisma.cashMovement.aggregate({
+          where: { cashRegisterId: cashRegister.id, type: "IN" },
+          _sum:  { amount: true },
+        }),
+        this.prisma.cashMovement.aggregate({
+          where: { cashRegisterId: cashRegister.id, type: "OUT" },
+          _sum:  { amount: true },
+        }),
+      ]);
+      cashBalance =
+        parseFloat(String(cashRegister.openingBalance)) +
+        parseFloat(String(inAgg._sum.amount ?? 0)) -
+        parseFloat(String(outAgg._sum.amount ?? 0));
+    }
+
+    const [branch, appointments, sales] = await Promise.all([
+      this.prisma.branch.findUnique({
+        where: { id: branchId },
+        select: { id: true, name: true, defaultCapacity: true },
+      }),
+
+      this.prisma.appointment.findMany({
+        where: { branchId, startAt: { gte: dayStart, lte: dayEnd } },
+        select: { id: true, status: true },
+      }),
+
+      this.prisma.sale.findMany({
+        where: {
+          branchId,
+          createdAt:  { gte: dayStart, lte: dayEnd },
+          status:     { not: "VOIDED" },
+        },
+        select: {
+          id: true,
+          totalAmount:      true,
+          paymentMethod:    true,
+          tipoComprobante:  true,
+        },
+      }),
+    ]);
+
+    if (!branch) throw new NotFoundException(`Sede ${branchId} no encontrada`);
+
+    // ── Citas: agrupar por estado ──────────────────────────────────────────
+    const apptByStatus: Record<string, number> = {};
+    for (const a of appointments) {
+      apptByStatus[a.status] = (apptByStatus[a.status] ?? 0) + 1;
+    }
+
+    const activeStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN", "IN_SERVICE"];
+    const occupied = appointments.filter((a) => activeStatuses.includes(a.status)).length;
+    const capacity = branch.defaultCapacity ?? 10;
+    const occupancyPct = capacity > 0 ? Math.min(100, Math.round((occupied / capacity) * 100)) : 0;
+
+    // ── Ventas: agrupar por tipo y medio de pago ───────────────────────────
+    let totalVentas = 0;
+    let facturaCount = 0;
+    let facturaTotal = 0;
+    let boletaCount  = 0;
+    let boletaTotal  = 0;
+
+    const paymentTotals: Record<string, { count: number; total: number }> = {};
+
+    for (const s of sales) {
+      const amount = Number(s.totalAmount) || 0;
+      totalVentas += amount;
+
+      const tipo = (s.tipoComprobante as string) ?? "";
+      if (tipo === "01") {
+        facturaCount++;
+        facturaTotal += amount;
+      } else if (tipo === "03" || !tipo) {
+        boletaCount++;
+        boletaTotal += amount;
+      }
+
+      const method = (s.paymentMethod as string) ?? "CASH";
+      if (!paymentTotals[method]) paymentTotals[method] = { count: 0, total: 0 };
+      paymentTotals[method].count++;
+      paymentTotals[method].total += amount;
+    }
+
+    const PAYMENT_LABELS: Record<string, string> = {
+      CASH:     "Efectivo",
+      CARD:     "Tarjeta",
+      YAPE:     "Yape",
+      PLIN:     "Plin",
+      TRANSFER: "Transferencia",
+      MIXED:    "Mixto",
+    };
+
+    const byPaymentMethod = Object.entries(paymentTotals).map(([method, v]) => ({
+      method,
+      label: PAYMENT_LABELS[method] ?? method,
+      count: v.count,
+      total: +v.total.toFixed(2),
+    }));
+
+    return {
+      branch_id:   branchId,
+      branch_name: branch.name,
+      date:        today,
+      appointments: {
+        total:       appointments.length,
+        pending:     apptByStatus["PENDING"]    ?? 0,
+        confirmed:   apptByStatus["CONFIRMED"]  ?? 0,
+        checked_in:  apptByStatus["CHECKED_IN"] ?? 0,
+        in_service:  apptByStatus["IN_SERVICE"] ?? 0,
+        completed:   apptByStatus["COMPLETED"]  ?? 0,
+        cancelled:   apptByStatus["CANCELED"]   ?? 0,
+        no_show:     apptByStatus["NO_SHOW"]    ?? 0,
+        rescheduled: apptByStatus["RESCHEDULED"] ?? 0,
+      },
+      occupancy: {
+        total_slots:     capacity,
+        occupied_slots:  occupied,
+        available_slots: Math.max(0, capacity - occupied),
+        pct:             occupancyPct,
+      },
+      sales: {
+        count:    sales.length,
+        total:    +totalVentas.toFixed(2),
+        facturas: { count: facturaCount, total: +facturaTotal.toFixed(2) },
+        boletas:  { count: boletaCount,  total: +boletaTotal.toFixed(2) },
+        by_payment_method: byPaymentMethod,
+      },
+      cash_register: cashRegister
+        ? {
+            id:      cashRegister.id,
+            balance: +cashBalance.toFixed(2),
+            is_open: true,
+          }
+        : null,
+    };
+  }
 }

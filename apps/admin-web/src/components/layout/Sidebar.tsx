@@ -40,7 +40,7 @@ interface NavItemDef {
 
 const navItems: NavItemDef[] = [
   { label: "Dashboard",       to: "/",                  icon: LayoutDashboard, end: true },
-  { label: "Dashboard Sede",  to: "/branch-dashboard",  icon: Store,           roles: ["RECEPTIONIST"] },
+  { label: "Dashboard Sede",  to: "/branch-dashboard",  icon: Store,           roles: ["RECEPTIONIST", "SUPER_ADMIN"] },
   { label: "Citas",           to: "/appointments",      icon: ClipboardList,   permissions: ["appointment.read"] },
   { label: "Calendario", to: "/calendar",      icon: CalendarDays,    permissions: ["appointment.read"] },
   { label: "Clientes",   to: "/customers",     icon: Users,           permissions: ["customer.read"] },

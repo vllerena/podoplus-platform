@@ -93,7 +93,9 @@ export class ScheduleResolverService {
       },
     });
 
-    // Convertir bloqueos recurrentes a instancias de hoy
+    // Convertir bloqueos recurrentes a instancias de hoy.
+    // Usar setUTCHours para generar timestamps naive Lima,
+    // consistente con slots y appointments.
     const recurringBlockInstances = recurringBlocks.map((block) => {
       const [startHour, startMin] = (block.startTime || "00:00")
         .split(":")
@@ -103,10 +105,10 @@ export class ScheduleResolverService {
         .map(Number);
 
       const blockStart = new Date(date);
-      blockStart.setHours(startHour, startMin, 0, 0);
+      blockStart.setUTCHours(startHour, startMin, 0, 0);
 
       const blockEnd = new Date(date);
-      blockEnd.setHours(endHour, endMin, 0, 0);
+      blockEnd.setUTCHours(endHour, endMin, 0, 0);
 
       return {
         startAt: blockStart,

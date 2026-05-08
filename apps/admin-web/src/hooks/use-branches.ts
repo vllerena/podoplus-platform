@@ -1,4 +1,4 @@
-/**
+﻿/**
  * use-branches.ts
  * Todos los hooks de lectura y mutación para el módulo de Sucursales.
  */
@@ -220,6 +220,7 @@ export const branchKeys = {
   prices:     (id: string) => [...branchKeys.all, id, "service-prices"] as const,
   users:      (id: string) => [...branchKeys.all, id, "users"] as const,
   series:     (id: string) => [...branchKeys.all, id, "series"] as const,
+  dashboard:  (id: string, date: string) => [...branchKeys.all, id, "dashboard", date] as const,
 };
 
 // ── Normalización de Branch ───────────────────────────────────────────────────
@@ -790,5 +791,65 @@ export function useDeleteBranchSerie(branchId: string) {
     onError: (err: Error) => {
       toast({ title: "Error al eliminar serie", description: err.message, variant: "destructive" });
     },
+  });
+}
+
+// ── Branch Dashboard ──────────────────────────────────────────────────────────
+
+export interface BranchDashboard {
+  branch_id:   string;
+  branch_name: string;
+  date:        string;
+  appointments: {
+    total:       number;
+    pending:     number;
+    confirmed:   number;
+    checked_in:  number;
+    in_service:  number;
+    completed:   number;
+    cancelled:   number;
+    no_show:     number;
+    rescheduled: number;
+  };
+  occupancy: {
+    total_slots:     number;
+    occupied_slots:  number;
+    available_slots: number;
+    pct:             number;
+  };
+  sales: {
+    count:    number;
+    total:    number;
+    facturas: { count: number; total: number };
+    boletas:  { count: number; total: number };
+    by_payment_method: { method: string; label: string; count: number; total: number }[];
+  };
+  cash_register: {
+    id:      string;
+    balance: number;
+    is_open: boolean;
+  } | null;
+}
+
+/**
+ * Carga en una sola llamada todos los KPIs del dia para el Dashboard Sede.
+ * Se refresca automaticamente cada 2 minutos mientras el componente esta montado.
+ */
+export function useBranchDashboard(branchId: string | null, date?: string) {
+  const today = date ?? new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
+
+  return useQuery<BranchDashboard>({
+    queryKey: branchKeys.dashboard(branchId ?? "", today),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/v1/branches/{id}/dashboard" as any, {
+        params: { path: { id: branchId! }, query: { date: today } },
+      } as any);
+      if (error) throw new Error(getErrorMessage(error));
+      return data as BranchDashboard;
+    },
+    enabled:              !!branchId,
+    staleTime:            2 * 60 * 1000,
+    refetchInterval:      2 * 60 * 1000,
+    refetchOnWindowFocus: true,
   });
 }

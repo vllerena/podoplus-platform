@@ -35,7 +35,10 @@ function hexToRgb(hex: string) {
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toLocaleTimeString("es-PE", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "UTC",
+  });
 }
 
 function initials(appt: Appointment): string {

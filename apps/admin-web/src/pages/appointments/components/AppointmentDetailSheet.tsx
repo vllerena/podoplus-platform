@@ -7,7 +7,7 @@ import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
   Button, Skeleton, Separator, Textarea, Badge,
 } from "@podoplus/ui";
-import { useAppointment } from "@/hooks/use-appointments";
+import { useAppointment, type Appointment } from "@/hooks/use-appointments";
 import {
   useConfirmAppointment, useCheckInAppointment, useStartAppointment,
   useCompleteAppointment, useCancelAppointment, useNoShowAppointment,
@@ -24,13 +24,18 @@ import {
 
 function fmtTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  // timeZone: "UTC" muestra la hora naive Lima almacenada en el campo UTC.
+  return d.toLocaleTimeString("es-PE", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "UTC",
+  });
 }
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("es-PE", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
+    timeZone: "UTC",
   });
 }
 
@@ -111,11 +116,17 @@ function StatusProgress({ status }: { status: string }) {
 interface Props {
   appointmentId: string | null;
   onClose:       () => void;
+  /**
+   * Callback disparado cuando la cita pasa a COMPLETED.
+   * El padre puede usar estos datos para abrir el modal de nueva venta
+   * precargado con el paciente y el servicio de la cita.
+   */
+  onCompleted?:  (appt: Appointment) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AppointmentDetailSheet({ appointmentId, onClose }: Props) {
+export function AppointmentDetailSheet({ appointmentId, onClose, onCompleted }: Props) {
   const [cancelReason,   setCancelReason]   = useState("");
   const [showCancel,     setShowCancel]     = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
@@ -155,10 +166,21 @@ export function AppointmentDetailSheet({ appointmentId, onClose }: Props) {
     const action = PRIMARY_ACTION[appt.status as AppointmentStatus];
     const id = appt.id;
     switch (action) {
-      case "confirm":   confirm.mutate({ id });  break;
-      case "check-in":  checkIn.mutate({ id });  break;
-      case "start":     start.mutate({ id });    break;
-      case "complete":  complete.mutate({ id }); break;
+      case "confirm":  confirm.mutate({ id }); break;
+      case "check-in": checkIn.mutate({ id }); break;
+      case "start":    start.mutate({ id });   break;
+      case "complete":
+        // Capturamos appt en el closure: al completar con éxito cerramos el
+        // sheet y notificamos al padre para que abra el modal de venta
+        // precargado con el paciente y el servicio de esta cita.
+        complete.mutate({ id }, {
+          onSuccess: () => {
+            const snapshot = appt; // captura antes de que el estado cambie
+            handleClose();
+            onCompleted?.(snapshot);
+          },
+        });
+        break;
     }
   };
 

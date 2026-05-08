@@ -287,17 +287,32 @@ function ItemSearch({ onAdd }: { onAdd: (item: AddItemPayload) => void }) {
   );
 }
 
+// ── Prefill (desde cita completada) ──────────────────────────────────────────
+
+export interface SalePrefill {
+  appointmentId?: string;
+  customerId?:    string;
+  /** "Nombre Apellido" para prellenar el campo de búsqueda */
+  customerName?:  string;
+  /** Número de documento del cliente */
+  customerDoc?:   string;
+  /** ID del servicio a agregar como primer ítem */
+  serviceId?:     string;
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   open:       boolean;
   onClose:    () => void;
   onSuccess?: (sale: Sale) => void;
+  /** Datos precargados al venir desde una cita completada */
+  prefill?:   SalePrefill;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function NewSaleModal({ open, onClose, onSuccess }: Props) {
+export function NewSaleModal({ open, onClose, onSuccess, prefill }: Props) {
   const { activeBranchId } = useBranchContext();
 
   // Branch + Business unit data
@@ -325,6 +340,8 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
   const hoveringCustomer = useRef(false);
   const [customerOpen, setCustomerOpen] = useState(false);
   const idemKey = useRef(crypto.randomUUID());
+  // Controla que el prefill se aplique solo una vez por apertura del modal
+  const prefillApplied = useRef(false);
 
   const debouncedCSearch = useDebounce(customerSearch, 300);
   const createSale = useCreateSale();
@@ -334,6 +351,51 @@ export function NewSaleModal({ open, onClose, onSuccess }: Props) {
     limit: 8,
   });
   const customers = customerPage?.data ?? [];
+
+  // ── Reset completo al cerrar el modal ────────────────────────────────────
+  useEffect(() => {
+    if (open) return;
+    // Reset de todos los campos al cerrar (ya lo hace handleClose, pero también
+    // al cerrar con Escape o clic fuera)
+    prefillApplied.current = false;
+  }, [open]);
+
+  // ── Aplicar prefill (cita completada → nueva venta) ──────────────────────
+  const { data: allServices } = useServices();
+
+  useEffect(() => {
+    if (!open || !prefill || prefillApplied.current) return;
+
+    // Prellenar cliente
+    if (prefill.customerId) {
+      setCustomerId(prefill.customerId);
+      setCustomerName(prefill.customerName ?? "");
+      setCustomerSearch(prefill.customerName ?? "");
+      setCustomerDoc(prefill.customerDoc ?? "");
+    }
+
+    // Prellenar servicio de la cita como primer ítem de la venta
+    if (prefill.serviceId && allServices) {
+      const svc = allServices.find(s => s.id === prefill.serviceId);
+      if (svc) {
+        setItems([{
+          key:            crypto.randomUUID(),
+          item_type:      "SERVICE",
+          service_id:     svc.id,
+          label:          svc.name,
+          unit_type_code: svc.unitTypeCode       ?? "ZZ",
+          igv_code:       svc.igvAffectationCode ?? "10",
+          quantity:       1,
+          unit_price:     String(parseFloat(String(svc.basePrice)) || 0),
+          discount_pct:   "0",
+        }]);
+        prefillApplied.current = true;
+      }
+    } else if (prefill.customerId) {
+      // Sin servicio para añadir, pero el cliente ya fue seteado
+      prefillApplied.current = true;
+    }
+  }, [open, prefill, allServices]);
 
   // ── Series filtradas por tipo comprobante ────────────────────────────────
 

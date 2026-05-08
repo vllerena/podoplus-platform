@@ -63,8 +63,16 @@ api.use({
           return fetch(request);
         }
       }
-      // Refresh failed — clear and redirect
+      // Refresh failed — limpiar tokens Y el store de Zustand, luego redirigir.
+      // clearTokens() solo borra localStorage; sin clearAuth() el store mantiene
+      // isAuthenticated=true y PublicRoute redirige de vuelta → bucle infinito.
       clearTokens();
+      // Import dinámico para evitar dependencia circular en tiempo de módulo.
+      // El módulo ya está en memoria (Vite bundle), la promesa resuelve antes
+      // de que el navegador procese la navegación (microtask vs macrotask).
+      import("@/stores/auth.store")
+        .then(({ useAuthStore }) => useAuthStore.getState().clearAuth())
+        .catch(() => {});
       window.location.href = "/login";
     }
     return response;

@@ -14,14 +14,41 @@ const MAX_VISIBLE_COLS = 3;    // max side-by-side columns; extras shown as "+N 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const LIMA_TZ = "America/Lima";
+
+/**
+ * Extrae horas y minutos de la HORA REAL Lima (para NowIndicator y scroll).
+ * Sólo usar con `new Date()`, nunca con timestamps almacenados (que son naive).
+ */
+function toLimaHM(date: Date): { hours: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: LIMA_TZ,
+    hour:     "numeric",
+    minute:   "numeric",
+    hour12:   false,
+  }).formatToParts(date);
+  return {
+    hours:   parseInt(parts.find((p) => p.type === "hour")?.value   ?? "0", 10),
+    minutes: parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10),
+  };
+}
+
+/**
+ * Devuelve la fecha YYYY-MM-DD del timestamp naive Lima (UTC = Lima local).
+ * toISOString().slice(0,10) es correcto porque naive UTC date = Lima date.
+ */
 function toDateKey(date: Date): string {
   if (!date || isNaN(date.getTime())) return "";
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Minutos desde las 7am para posicionar citas en la grilla.
+ * Los timestamps almacenados son naive Lima → getUTCHours() da la hora Lima.
+ */
 function minutesFromDayStart(iso: string): number {
   const d = new Date(iso);
-  return d.getHours() * 60 + d.getMinutes() - DAY_START * 60;
+  return d.getUTCHours() * 60 + d.getUTCMinutes() - DAY_START * 60;
 }
 
 function durationMinutes(startIso: string, endIso: string): number {
@@ -116,8 +143,8 @@ const MONTH_LABELS = [
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function NowIndicator() {
-  const now  = new Date();
-  const mins = minutesFromDayStart(now.toISOString());
+  const { hours, minutes } = toLimaHM(new Date());
+  const mins = hours * 60 + minutes - DAY_START * 60;
   if (mins < 0 || mins > TOTAL_HOURS * 60) return null;
   const topPx = (mins / 60) * HOUR_HEIGHT;
 
@@ -162,11 +189,11 @@ export function WeekCalendar({
   const scrollRef = useRef<HTMLDivElement>(null);
   const todayStr  = toDateKey(new Date());
 
-  // Scroll to current time on mount
+  // Scroll to current Lima time on mount
   useEffect(() => {
     if (!scrollRef.current) return;
-    const now  = new Date();
-    const mins = now.getHours() * 60 + now.getMinutes() - DAY_START * 60;
+    const { hours, minutes } = toLimaHM(new Date());
+    const mins = hours * 60 + minutes - DAY_START * 60;
     if (mins > 0) {
       const scrollTo = Math.max(0, (mins / 60) * HOUR_HEIGHT - 120);
       scrollRef.current.scrollTop = scrollTo;

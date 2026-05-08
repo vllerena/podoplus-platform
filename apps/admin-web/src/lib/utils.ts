@@ -13,8 +13,11 @@ export function formatCurrency(amount: number, currency = "PEN"): string {
   }).format(amount);
 }
 
+// Los timestamps se almacenan en "naive Lima" (la hora Lima guardada en el campo UTC).
+// timeZone: "UTC" muestra el valor UTC directamente, que coincide con la hora Lima.
 export function formatDate(date: string | Date, opts?: Intl.DateTimeFormatOptions): string {
   return new Intl.DateTimeFormat("es-PE", {
+    timeZone: "UTC",
     day:   "2-digit",
     month: "2-digit",
     year:  "numeric",
@@ -24,6 +27,7 @@ export function formatDate(date: string | Date, opts?: Intl.DateTimeFormatOption
 
 export function formatTime(date: string | Date): string {
   return new Intl.DateTimeFormat("es-PE", {
+    timeZone: "UTC",
     hour:   "2-digit",
     minute: "2-digit",
     hour12: true,

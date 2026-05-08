@@ -13,6 +13,7 @@ import { CancelModal }       from "./components/CancelModal";
 import { RescheduleModal }   from "./components/RescheduleModal";
 import { NewAppointmentDrawer } from "./components/NewAppointmentDrawer";
 import { AppointmentDetailSheet } from "./components/AppointmentDetailSheet";
+import { NewSaleModal, type SalePrefill } from "@/pages/sales/components/NewSaleModal";
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,25 +51,35 @@ const FAKE_APPOINTMENTS: Appointment[] = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const LIMA_TZ = "America/Lima";
+
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: LIMA_TZ }).format(new Date());
 }
 
 function addDays(date: string, n: number): string {
-  const d = new Date(date + "T12:00:00");
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  const [y, mo, d] = date.split("-").map(Number);
+  const result = new Date(y, mo - 1, d + n);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: LIMA_TZ }).format(result);
 }
 
 function formatDateHeader(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("es-PE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  // Noon UTC ensures date stays on the correct day for naive Lima display.
+  const d = new Date(dateStr + "T12:00:00Z");
+  return d.toLocaleDateString("es-PE", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function fmtTime(iso: string) {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  // timeZone: "UTC" muestra la hora naive Lima almacenada en el campo UTC.
+  return d.toLocaleTimeString("es-PE", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "UTC",
+  });
 }
 
 function initials(firstName: string, lastName: string) {
@@ -266,6 +277,23 @@ export function AppointmentsPage() {
   const [cancelTarget,     setCancelTarget]     = useState<Appointment | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<Appointment | null>(null);
   const [drawerOpen,       setDrawerOpen]       = useState(false);
+
+  // Modal de nueva venta — se abre automáticamente al completar una cita
+  const [saleOpen,    setSaleOpen]    = useState(false);
+  const [salePrefill, setSalePrefill] = useState<SalePrefill | undefined>();
+
+  const handleApptCompleted = (appt: Appointment) => {
+    setSalePrefill({
+      appointmentId: appt.id,
+      customerId:    appt.customerId   ?? appt.customer?.id,
+      customerName:  appt.customer
+        ? `${appt.customer.firstName} ${appt.customer.lastName}`.trim()
+        : undefined,
+      customerDoc:   appt.customer?.documentNumber,
+      serviceId:     appt.serviceId    ?? appt.service?.id,
+    });
+    setSaleOpen(true);
+  };
 
   // Branches — auto-select first on mount
   const { data: allBranches } = useBranches();
@@ -543,6 +571,7 @@ export function AppointmentsPage() {
       <AppointmentDetailSheet
         appointmentId={detailId}
         onClose={() => setDetailId(null)}
+        onCompleted={handleApptCompleted}
       />
 
       <NewAppointmentDrawer
@@ -550,6 +579,13 @@ export function AppointmentsPage() {
         onClose={() => setDrawerOpen(false)}
         defaultDate={date}
         defaultBranchId={activeBranchId ?? undefined}
+      />
+
+      {/* Modal de venta — se abre automáticamente al completar una cita */}
+      <NewSaleModal
+        open={saleOpen}
+        onClose={() => { setSaleOpen(false); setSalePrefill(undefined); }}
+        prefill={salePrefill}
       />
     </div>
   );

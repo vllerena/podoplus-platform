@@ -20,9 +20,21 @@ const DAY_LABELS_LONG = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Convierte "HH:mm" (24h Lima local del backend) → "H:mm AM/PM". */
+function to12h(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+/** Formatea timestamp naive Lima → hora con formato 12h. */
 function fmtTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toLocaleTimeString("es-PE", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "UTC",
+  });
 }
 
 function fmtDateLabel(dateStr: string): string {
@@ -59,7 +71,7 @@ export function BookingModal({ open, onClose, defaultDate, defaultHour }: Props)
   const [selectedBranchId,  setSelectedBranchId]  = useState("");
   const [selectedBuId,      setSelectedBuId]       = useState("");
   const [selectedSlot,      setSelectedSlot]       = useState<{
-    startAt: string; endAt: string; startAtLocal?: string;
+    startAt: string; endAt: string; startAtLocal?: string; endAtLocal?: string;
   } | null>(null);
   const [customerId,        setCustomerId]         = useState("");
   const [customerName,      setCustomerName]       = useState("");
@@ -68,7 +80,7 @@ export function BookingModal({ open, onClose, defaultDate, defaultHour }: Props)
   const [serviceSearch,     setServiceSearch]      = useState("");
   const [slotsRequested,    setSlotsRequested]     = useState(false);
 
-  const date = defaultDate ?? new Date().toISOString().slice(0, 10);
+  const date = defaultDate ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
 
   const debouncedCustomer = useDebounce(customerSearch, 300);
   const debouncedService  = useDebounce(serviceSearch, 200);
@@ -93,7 +105,9 @@ export function BookingModal({ open, onClose, defaultDate, defaultHour }: Props)
     ? { branchId: selectedBranchId, serviceId: selectedServiceId, date }
     : null;
 
-  const { data: slots, isFetching: slotsFetching } = useAvailabilitySlots(slotsParams);
+  const { data: rawSlots, isFetching: slotsFetching } = useAvailabilitySlots(slotsParams);
+  // Solo mostrar slots con cupo disponible en el modal de reserva
+  const slots = (rawSlots ?? []).filter((s) => s.availableCapacity > 0);
 
   const createAppt = useCreateAppointment();
 
@@ -313,14 +327,15 @@ export function BookingModal({ open, onClose, defaultDate, defaultHour }: Props)
                 <div className="grid grid-cols-3 gap-1.5 max-h-44 overflow-y-auto">
                   {(slots ?? []).map((slot) => {
                     const isSelected = selectedSlot?.startAt === slot.startAt;
-                    const label = slot.startAtLocal ?? fmtTime(slot.startAt);
+                    const label = slot.startAtLocal ? to12h(slot.startAtLocal) : fmtTime(slot.startAt);
                     return (
                       <button
                         key={slot.startAt}
                         onClick={() => setSelectedSlot({
-                          startAt: slot.startAt,
-                          endAt: slot.endAt,
+                          startAt:      slot.startAt,
+                          endAt:        slot.endAt,
                           startAtLocal: slot.startAtLocal,
+                          endAtLocal:   slot.endAtLocal,
                         })}
                         className={`px-2 py-2 rounded-md text-xs font-medium transition-all text-center
                           ${isSelected
@@ -339,7 +354,9 @@ export function BookingModal({ open, onClose, defaultDate, defaultHour }: Props)
                 <div className="flex items-center gap-2 text-xs bg-primary/8 border border-primary/20 rounded-md px-3 py-2">
                   <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
                   <span className="text-primary font-medium">
-                    {fmtTime(selectedSlot.startAt)} – {fmtTime(selectedSlot.endAt)}
+                    {selectedSlot.startAtLocal ? to12h(selectedSlot.startAtLocal) : fmtTime(selectedSlot.startAt)}
+                    {" – "}
+                    {selectedSlot.endAtLocal   ? to12h(selectedSlot.endAtLocal)   : fmtTime(selectedSlot.endAt)}
                   </span>
                 </div>
               )}

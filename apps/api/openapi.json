@@ -1964,6 +1964,46 @@
         ]
       }
     },
+    "/v1/branches/{id}/dashboard": {
+      "get": {
+        "operationId": "BranchesController_getDashboard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KPIs del día retornados exitosamente."
+          },
+          "404": {
+            "description": "Sede no encontrada."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Obtener KPIs del día para el Dashboard Sede",
+        "tags": [
+          "Branches"
+        ]
+      }
+    },
     "/v1/schedule/branches/{branchId}/hours": {
       "get": {
         "operationId": "ScheduleController_getBranchHours",

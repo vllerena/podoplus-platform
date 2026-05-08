@@ -88,10 +88,11 @@ export function useRescheduleAppointment() {
     const isoStr = body?.newStartAt as string | undefined;
     if (!isoStr) throw new Error("Se requiere una fecha y hora para reagendar");
 
-    // Backend DTO expects separate date + time fields (snake_case)
-    const new_start_date = isoStr.slice(0, 10); // "YYYY-MM-DD"
+    // Extraer fecha y hora en UTC del ISO del slot (no browser local).
+    // slot.startAt es UTC exacto; parseLocalDate en backend lo guarda tal cual.
     const d              = new Date(isoStr);
-    const new_start_time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const new_start_date = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    const new_start_time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 
     const { error } = await api.POST("/v1/appointments/{id}/reschedule" as any, {
       params: { path: { id } },
@@ -116,10 +117,13 @@ export function useCreateAppointment() {
       startAtLocal?: string;
       notes?:        string;
     }) => {
+      // ESTRATEGIA NAIVE LIMA: los slots se almacenan con la hora Lima en el campo UTC.
+      // slot.startAt = "2026-05-05T10:00:00.000Z" para Lima 10:00.
+      // getUTCHours() devuelve 10 (la hora Lima), que es exactamente lo que queremos guardar.
+      // parseLocalDate en backend usa Date.UTC → almacena el mismo valor sin offset.
       const d          = new Date(body.startAt);
-      const start_date = body.startAt.slice(0, 10);
-      const start_time = body.startAtLocal
-        ?? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      const start_date = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+      const start_time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
 
       const { data, error } = await api.POST("/v1/appointments" as any, {
         body: {

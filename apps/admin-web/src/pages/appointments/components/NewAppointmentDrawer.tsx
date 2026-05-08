@@ -4,6 +4,14 @@ import { useCreateAppointment } from "@/hooks/use-appointment-actions";
 import { useBranches, useServices, useCustomerSearch, useAvailabilitySlots } from "@/hooks/use-appointments";
 import { cn, formatTime } from "@/lib/utils";
 
+/** Convierte "HH:mm" (24h, Lima local del backend) a "H:mm AM/PM". */
+function to12h(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour12  = h % 12 || 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
 interface NewAppointmentDrawerProps {
   open:             boolean;
   onClose:          () => void;
@@ -25,7 +33,7 @@ interface WizardState {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
 }
 
 export function NewAppointmentDrawer({ open, onClose, defaultDate, defaultBranchId }: NewAppointmentDrawerProps) {
@@ -220,7 +228,7 @@ export function NewAppointmentDrawer({ open, onClose, defaultDate, defaultBranch
                               : "bg-white text-gray-700 border-gray-200 hover:border-indigo-400 hover:text-indigo-600"
                           )}
                         >
-                          {formatTime(slot.startAt)}
+                          {to12h(slot.startAtLocal)}
                         </button>
                       ))}
                     </div>
@@ -256,7 +264,11 @@ export function NewAppointmentDrawer({ open, onClose, defaultDate, defaultBranch
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Hora</span>
-                  <span className="font-medium">{formatTime(wizard.startAt)}</span>
+                  <span className="font-medium">
+                    {slots.find((s) => s.startAt === wizard.startAt)
+                      ? to12h(slots.find((s) => s.startAt === wizard.startAt)!.startAtLocal)
+                      : formatTime(wizard.startAt)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Sede</span>

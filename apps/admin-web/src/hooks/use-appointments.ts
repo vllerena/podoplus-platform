@@ -112,13 +112,22 @@ export interface Appointment {
  *   customer_name, service_name, service_color, service_duration_minutes, ...
  */
 function normalizeAppointment(raw: any): Appointment {
-  // Convert "YYYY-MM-DD HH:mm" or ISO to a proper ISO string
+  // Convierte "YYYY-MM-DD HH:mm" o "YYYY-MM-DD HH:mm:ss" al ISO UTC correcto.
+  //
+  // ESTRATEGIA NAIVE LIMA: las horas en la BD son Lima local almacenadas como UTC.
+  // Ejemplo: "2026-05-05 15:30:00" = Lima 15:30 (naive).
+  //
+  // Debemos añadir 'T' y 'Z' para que el browser trate el valor como UTC y no
+  // como hora local Lima (que sumaría 5h extra al convertir a UTC internamente).
+  //   SIN Z: new Date("2026-05-05 15:30:00") en Lima → UTC 20:30 ← INCORRECTO
+  //   CON Z: new Date("2026-05-05T15:30:00Z") → UTC 15:30 ← CORRECTO (naive Lima)
   const toIso = (v: string | undefined): string => {
     if (!v) return "";
-    // Already ISO
+    // Ya es ISO con T/Z → no modificar
     if (v.includes("T") || v.includes("Z")) return v;
-    // "YYYY-MM-DD HH:mm" → add seconds so Date can parse it as local time
-    return v.length === 16 ? `${v}:00` : v;
+    // "YYYY-MM-DD HH:mm" o "YYYY-MM-DD HH:mm:ss" → convertir a ISO UTC naive
+    const withSec = v.length === 16 ? `${v}:00` : v;   // asegurar segundos
+    return `${withSec.replace(" ", "T")}Z`;              // → "2026-05-05T15:30:00Z"
   };
 
   const startAt = toIso(raw.start_at ?? raw.startAt);

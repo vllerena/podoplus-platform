@@ -32,14 +32,20 @@ export class AvailabilityService {
     return new Date(year, month - 1, day, 0, 0, 0, 0);
   }
 
-  /** "YYYY-MM-DD" from a local Date (avoids UTC drift for evening slots). */
+  /**
+   * "YYYY-MM-DD" desde un timestamp naive Lima (campo UTC = hora Lima).
+   * Usa getUTC* para leer la fecha naive sin aplicar el offset de zona.
+   */
   private localDateStr(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
   }
 
-  /** "HH:mm" from a local Date. */
+  /**
+   * "HH:mm" desde un timestamp naive Lima (campo UTC = hora Lima).
+   * Usa getUTC* para leer la hora naive sin aplicar el offset de zona.
+   */
   private formatTimeLocal(date: Date): string {
-    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
   }
 
   /**
@@ -117,12 +123,20 @@ export class AvailabilityService {
       };
     });
 
-    // 8. Filtrar disponibles
+    // 8. Conteo de disponibles (para el resumen)
     const availableSlots = enrichedSlots.filter((s) => s.isAvailable);
 
-    // 9. Agrupar por fecha local (sin UTC drift: usa getFullYear/Month/Date)
+    // Calcular resumen de capacidad con unidades homogéneas (spots de cita).
+    // Incluye TODOS los enrichedSlots del rango (disponibles y completos).
+    // totalCapacity = occupiedSlots + availableSlots  ← siempre se cumple.
+    const totalSpots    = enrichedSlots.reduce((s, x) => s + x.totalCapacity, 0);
+    const occupiedSpots = enrichedSlots.reduce((s, x) => s + (x.totalCapacity - x.availableCapacity), 0);
+    const freeSpots     = totalSpots - occupiedSpots;
+
+    // 9. Agrupar TODOS los slots por fecha (disponibles e indisponibles).
+    // El frontend filtra por isAvailable si necesita solo los reservables.
     const slotsByDate = new Map<string, AvailabilitySlot[]>();
-    for (const slot of availableSlots) {
+    for (const slot of enrichedSlots) {          // ← todos, no solo availableSlots
       const dateKey = this.localDateStr(slot.startAt);
       if (!slotsByDate.has(dateKey)) slotsByDate.set(dateKey, []);
       slotsByDate.get(dateKey)!.push(slot);
@@ -160,10 +174,13 @@ export class AvailabilityService {
       serviceDurationWithBuffer: service.durationMinutes + service.bufferMinutes,
       dateRange: { from, to },
       schedule: scheduleInfo,
+      // capacity: unidades homogéneas (spots de appointment, no conteo de slots)
+      // totalCapacity = totalSlots × capacidadPorSlot
+      // occupiedSpots + freeSpots = totalCapacity  ← siempre se cumple
       capacity: {
-        totalCapacity: branch.defaultCapacity,
-        occupiedSlots: enrichedSlots.length - availableSlots.length,
-        availableSlots: availableSlots.length,
+        totalCapacity: totalSpots,
+        occupiedSlots: occupiedSpots,
+        availableSlots: freeSpots,
       },
       totalDays: slotsByDateArray.length,
       byDate: slotsByDateArray,

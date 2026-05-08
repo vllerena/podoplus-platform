@@ -29,22 +29,17 @@ export class CapacityService {
     branchId: string,
     slotStart: Date
   ): Promise<number> {
+    // NAIVE LIMA: slotStart es hora Lima en campo UTC → usar getUTC* para
+    // extraer la fecha y hora Lima correctas sin aplicar offset de zona.
+
     // 1. Buscar override específico por fecha
     const dateException = await this.prisma.branchCapacityRule.findFirst({
       where: {
         branchId,
         scopeType: "DATE",
         date: {
-          gte: new Date(
-            slotStart.getFullYear(),
-            slotStart.getMonth(),
-            slotStart.getDate()
-          ),
-          lt: new Date(
-            slotStart.getFullYear(),
-            slotStart.getMonth(),
-            slotStart.getDate() + 1
-          ),
+          gte: new Date(Date.UTC(slotStart.getUTCFullYear(), slotStart.getUTCMonth(), slotStart.getUTCDate())),
+          lt:  new Date(Date.UTC(slotStart.getUTCFullYear(), slotStart.getUTCMonth(), slotStart.getUTCDate() + 1)),
         },
         isActive: true,
       },
@@ -55,10 +50,10 @@ export class CapacityService {
       return dateException.capacity;
     }
 
-    // 2. Buscar por rango semanal
-    const weekday = slotStart.getDay();
-    const timeStr = `${String(slotStart.getHours()).padStart(2, "0")}:${String(
-      slotStart.getMinutes()
+    // 2. Buscar por rango semanal (weekday y hora en naive Lima = getUTC*)
+    const weekday = slotStart.getUTCDay();
+    const timeStr = `${String(slotStart.getUTCHours()).padStart(2, "0")}:${String(
+      slotStart.getUTCMinutes()
     ).padStart(2, "0")}`;
 
     const weekdayException = await this.prisma.branchCapacityRule.findFirst({
@@ -87,7 +82,10 @@ export class CapacityService {
   }
 
   /**
-   * Cuenta citas confirmadas que solapan un rango horario
+   * Cuenta citas que solapan un rango horario.
+   * COMPLETED también se considera ocupado: el cupo ya fue consumido (útil
+   * para mostrar la ocupación real de días pasados o del día actual).
+   * Solo CANCELED y RESCHEDULED liberan el cupo.
    */
   async countOccupiedSlots(
     branchId: string,
@@ -97,9 +95,7 @@ export class CapacityService {
     const count = await this.prisma.appointment.count({
       where: {
         branchId,
-        status: {
-          in: ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"],
-        },
+        status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "IN_SERVICE", "COMPLETED"] },
         startAt: { lt: slotEnd },
         endAt: { gt: slotStart },
       },
@@ -138,21 +134,31 @@ export class CapacityService {
    * Pre-carga en UNA sola ronda de queries todos los datos necesarios para
    * calcular la capacidad de todos los slots en un rango de fechas.
    * Usar junto con computeSlotCapacity() para eliminar el N+1 por slot.
+   *
+   * ESTRATEGIA NAIVE LIMA: los timestamps en la BD son hora Lima almacenada
+   * en el campo UTC (naive).  Los slots también se generan como naive.
+   * Por eso los límites del query deben ser naive UTC (00:00Z – 23:59Z del día
+   * Lima), no local midnight (UTC 05:00 con servidor Lima TZ).
    */
   async preloadForRange(
     branchId: string,
     from: Date,
     to: Date
   ): Promise<CapacityPreload> {
-    const toEnd = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999);
+    // Usar getFullYear/Month/Date (hora local Lima del servidor) para extraer
+    // la fecha Lima correcta, luego construir el rango naive con Date.UTC.
+    const fromNaive = new Date(Date.UTC(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0));
+    const toEnd     = new Date(Date.UTC(to.getFullYear(),   to.getMonth(),   to.getDate(),   23, 59, 59, 999));
 
     const [appointments, rules, branch] = await Promise.all([
       this.prisma.appointment.findMany({
         where: {
           branchId,
-          status: { in: ["CONFIRMED", "CHECKED_IN", "IN_SERVICE"] },
+          // COMPLETED también ocupa cupo (el tiempo ya fue consumido).
+          // Solo CANCELED y RESCHEDULED liberan el cupo disponible.
+          status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN", "IN_SERVICE", "COMPLETED"] },
           startAt: { lt: toEnd },
-          endAt:   { gt: from },
+          endAt:   { gt: fromNaive },
         },
         select: { startAt: true, endAt: true },
       }),
@@ -197,8 +203,10 @@ export class CapacityService {
     rules: CapacityPreload["rules"],
     defaultCapacity: number
   ): number {
-    const slotDayStart = new Date(slotStart.getFullYear(), slotStart.getMonth(), slotStart.getDate()).getTime();
-    const slotDayEnd   = new Date(slotStart.getFullYear(), slotStart.getMonth(), slotStart.getDate() + 1).getTime();
+    // NAIVE LIMA: slotStart es hora Lima en campo UTC → usar getUTC* para leer
+    // la fecha y hora Lima sin aplicar el offset de zona del servidor.
+    const slotDayStart = Date.UTC(slotStart.getUTCFullYear(), slotStart.getUTCMonth(), slotStart.getUTCDate());
+    const slotDayEnd   = Date.UTC(slotStart.getUTCFullYear(), slotStart.getUTCMonth(), slotStart.getUTCDate() + 1);
 
     // 1. DATE override
     const dateRule = rules
@@ -207,9 +215,9 @@ export class CapacityService {
       .sort((a, b) => b.priority - a.priority)[0];
     if (dateRule) return dateRule.capacity;
 
-    // 2. WEEKDAY_RANGE override
-    const weekday = slotStart.getDay();
-    const timeStr = `${String(slotStart.getHours()).padStart(2, "0")}:${String(slotStart.getMinutes()).padStart(2, "0")}`;
+    // 2. WEEKDAY_RANGE override — weekday y hora también en naive Lima (UTC)
+    const weekday = slotStart.getUTCDay();
+    const timeStr = `${String(slotStart.getUTCHours()).padStart(2, "0")}:${String(slotStart.getUTCMinutes()).padStart(2, "0")}`;
     const weekdayRule = rules
       .filter((r) => r.scopeType === "WEEKDAY_RANGE" && r.weekday === weekday &&
         r.startTime !== null && r.endTime !== null &&
