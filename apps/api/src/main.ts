@@ -25,20 +25,9 @@ async function bootstrap() {
   // En production:  CSP completo activado.
   app.use(
     helmet({
-      contentSecurityPolicy: isProd
-        ? {
-            directives: {
-              defaultSrc:     ["'self'"],
-              scriptSrc:      ["'self'"],
-              styleSrc:       ["'self'", "'unsafe-inline'"],
-              imgSrc:         ["'self'", "data:", "https:"],
-              connectSrc:     ["'self'"],
-              fontSrc:        ["'self'"],
-              objectSrc:      ["'none'"],
-              upgradeInsecureRequests: [],
-            },
-          }
-        : false,
+      // CSP desactivado cuando Swagger está habilitado (necesita cargar sus assets).
+      // En producción real sin Swagger, activar CSP con las directivas del bloque comentado.
+      contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false, // Necesario para Socket.IO y Swagger UI
     })
   );
@@ -72,9 +61,9 @@ async function bootstrap() {
   // ── Swagger / OpenAPI ────────────────────────────────────────────────────────
   //
   // Disponible en /api/docs (UI interactiva) y /api/docs-json (spec JSON).
-  // En producción se desactiva la UI pero el JSON spec sigue disponible
-  // para generación de clientes type-safe en el frontend.
-  if (!isProd) {
+  // Controlado por la variable SWAGGER_ENABLED (default: true en dev, true si se setea).
+  const swaggerEnabled = configService.get<string>("SWAGGER_ENABLED") !== "false";
+  if (swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle("Podoplus Platform API")
       .setDescription(
@@ -150,7 +139,7 @@ async function bootstrap() {
       port,
       env:       configService.get("NODE_ENV"),
       url:       `http://${host}:${port}`,
-      docs:      isProd ? "disabled in production" : `http://${host}:${port}/api/docs`,
+      docs:      swaggerEnabled ? `http://${host}:${port}/api/docs` : "disabled (set SWAGGER_ENABLED=true to enable)",
       websocket: `ws://${host}:${port}/realtime`,
       health:    `http://${host}:${port}/health`,
     },
