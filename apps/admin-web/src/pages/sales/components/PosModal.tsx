@@ -576,13 +576,13 @@ export function PosModal({ open, onClose, onSuccess }: Props) {
                   placeholder="Cliente (opcional)"
                   className="w-full h-7 px-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
                 />
-                {customerOpen && (customers ?? []).length > 0 && (
+                {customerOpen && (customers?.data ?? []).length > 0 && (
                   <div
                     className="absolute bottom-8 left-0 right-0 z-50 rounded-md border bg-popover shadow-lg max-h-32 overflow-y-auto"
                     onMouseEnter={() => { hoveringCustomer.current = true; }}
                     onMouseLeave={() => { hoveringCustomer.current = false; }}
                   >
-                    {(customers ?? []).map((c: any) => (
+                    {(customers?.data ?? []).map((c: any) => (
                       <button
                         key={c.id} type="button" tabIndex={-1}
                         onClick={() => {

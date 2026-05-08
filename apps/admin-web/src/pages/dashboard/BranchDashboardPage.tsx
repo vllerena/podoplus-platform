@@ -318,7 +318,7 @@ function SalesCard({ d }: { d: BranchDashboard }) {
 // ── Pantalla: sin sede seleccionada ──────────────────────────────────────────
 
 function NoBranchSelected() {
-  const { branches } = useBranches();
+  const { data: branches } = useBranches();
   const { setActiveBranch } = useBranchStore();
 
   return (
